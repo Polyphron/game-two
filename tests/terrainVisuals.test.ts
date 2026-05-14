@@ -62,6 +62,27 @@ describe("terrain visual line layer", () => {
     expect(mapPointCount).toBeGreaterThan(25_000);
   });
 
+  it("stores uneven signal confidence and loose scan anomalies", () => {
+    const terrain = new TerrainField({ seed: 21, size: 512, scale: 42, amplitude: 34 });
+    const group = createTerrainVisuals(terrain);
+    const mapParticles = group.getObjectByName("terrain-map-particles") as THREE.Points;
+    const anomalies = group.getObjectByName("terrain-scan-anomalies") as THREE.Points;
+    const signalQuality = mapParticles.geometry.getAttribute("aSignalQuality");
+    const values = signalQuality.array as ArrayLike<number>;
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (let i = 0; i < values.length; i += Math.max(1, Math.floor(values.length / 1000))) {
+      min = Math.min(min, values[i]);
+      max = Math.max(max, values[i]);
+    }
+
+    expect(signalQuality.count).toBe(mapParticles.geometry.getAttribute("position").count);
+    expect(max - min).toBeGreaterThan(0.4);
+    expect(anomalies).toBeInstanceOf(THREE.Points);
+    expect(anomalies.geometry.getAttribute("position").count).toBeGreaterThan(300);
+  });
+
   it("updates sonar uniforms on both particle layers", () => {
     const terrain = new TerrainField({ seed: 21, size: 256, scale: 42, amplitude: 34 });
     const group = createTerrainVisuals(terrain);
@@ -80,6 +101,7 @@ describe("terrain visual line layer", () => {
       expect(material.uniforms.uSonarRadius.value).toBe(84);
       expect(material.uniforms.uSonarReveal.value).toBeCloseTo(0.72);
       expect(material.uniforms.uTime.value).toBeCloseTo(3.4);
+      expect(material.uniforms.uPassiveRange.value).toBeGreaterThan(60);
       expect(material.uniforms.uSonarOrigin.value.x).toBe(8);
       expect(material.uniforms.uSonarOrigin.value.z).toBe(-16);
     }

@@ -47,7 +47,6 @@ export class Game {
     window.addEventListener("keydown", this.keyDownHandler);
     window.addEventListener("keyup", this.keyUpHandler);
     this.resizeHandler();
-    triggerSonarPulse(this.sonar);
     this.animationFrame = window.requestAnimationFrame(this.frame);
   }
 

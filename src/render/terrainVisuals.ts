@@ -10,6 +10,8 @@ const PARTICLE_CONTOUR_COUNT = 72;
 const TERRAIN_HEIGHT_LIFT = 0.65;
 const DOT_JITTER = 0.58;
 const CONTOUR_PARTICLE_SPACING = 1.2;
+const ANOMALY_PARTICLE_COUNT = 720;
+const PASSIVE_SCAN_RANGE = 118;
 const SONAR_RING_SEGMENTS = 180;
 
 function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number, number, number] {
@@ -127,8 +129,10 @@ const particleVertexShader = `
   attribute float aPhase;
   attribute float aSize;
   attribute float aSonarGain;
+  attribute float aSignalQuality;
 
   uniform float uBaseOpacity;
+  uniform float uPassiveRange;
   uniform float uSonarRadius;
   uniform float uSonarReveal;
   uniform float uTime;
@@ -137,6 +141,7 @@ const particleVertexShader = `
 
   varying vec3 vColor;
   varying float vAlpha;
+  varying float vSignal;
   varying float vWave;
 
   void main() {
@@ -144,8 +149,12 @@ const particleVertexShader = `
     vec2 delta = position.xz - uSonarOrigin.xz;
     float distanceFromPulse = length(delta);
     float waveBand = exp(-pow((distanceFromPulse - uSonarRadius) / 9.5, 2.0)) * uSonarReveal * aSonarGain;
-    float wake = exp(-pow((distanceFromPulse - max(0.0, uSonarRadius - 22.0)) / 38.0, 2.0)) * uSonarReveal * 0.18;
+    float wake = exp(-pow((distanceFromPulse - max(0.0, uSonarRadius - 38.0)) / 64.0, 2.0)) * uSonarReveal * 0.44;
     float shimmer = 0.5 + 0.5 * sin(distanceFromPulse * 0.16 - uTime * 9.0 + aPhase * 6.28318);
+    float nearSignal = 1.0 - smoothstep(uPassiveRange * 0.48, uPassiveRange, distanceFromPulse);
+    float pingSignal = clamp(waveBand * 1.2 + wake * 1.55, 0.0, 1.0);
+    float sensorSignal = clamp(max(nearSignal, pingSignal), 0.0, 1.0);
+    float dropout = smoothstep(0.08, 0.78, aSignalQuality + sensorSignal * 0.32 + shimmer * 0.18);
     vec2 direction = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, 1.0);
 
     displaced.y += waveBand * (3.2 + shimmer * 2.6);
@@ -156,14 +165,16 @@ const particleVertexShader = `
     gl_PointSize = clamp(aSize * (1.0 + waveBand * 1.1) * (420.0 / max(80.0, -modelViewPosition.z)), 1.0, 7.2);
 
     vColor = color;
+    vSignal = sensorSignal;
     vWave = waveBand;
-    vAlpha = clamp(uBaseOpacity + waveBand * uWaveStrength + wake + shimmer * 0.045, 0.0, 1.0);
+    vAlpha = clamp((uBaseOpacity * sensorSignal + waveBand * uWaveStrength + wake * 0.32 + shimmer * 0.035) * dropout, 0.0, 1.0);
   }
 `;
 
 const particleFragmentShader = `
   varying vec3 vColor;
   varying float vAlpha;
+  varying float vSignal;
   varying float vWave;
 
   void main() {
@@ -173,7 +184,7 @@ const particleFragmentShader = `
     float green = smoothstep(0.44, 0.13, length(centered));
     float blue = smoothstep(0.44, 0.13, length(centered - vec2(split, 0.0)));
     float core = max(max(red, green), blue);
-    float halo = smoothstep(0.5, 0.0, length(centered)) * (0.18 + vWave * 0.34);
+    float halo = smoothstep(0.5, 0.0, length(centered)) * (0.1 + vSignal * 0.12 + vWave * 0.34);
     vec3 scanColor = vec3(red * (0.34 + vColor.r), green * vColor.g, blue * vColor.b);
     vec3 hotColor = mix(scanColor, vec3(0.28, 1.0, 0.9), clamp(vWave * 0.45, 0.0, 1.0));
     float alpha = (core + halo) * vAlpha;
@@ -190,6 +201,7 @@ function createParticleMaterial(baseOpacity: number, waveStrength: number): THRE
   return new THREE.ShaderMaterial({
     uniforms: {
       uBaseOpacity: { value: baseOpacity },
+      uPassiveRange: { value: PASSIVE_SCAN_RANGE },
       uSonarOrigin: { value: new THREE.Vector3() },
       uSonarRadius: { value: 0 },
       uSonarReveal: { value: 0 },
@@ -209,6 +221,7 @@ type ParticleAttributes = {
   colors: number[];
   phases: number[];
   positions: number[];
+  signalQualities: number[];
   sizes: number[];
   sonarGains: number[];
 };
@@ -218,12 +231,14 @@ function pushParticle(
   position: [number, number, number],
   color: [number, number, number],
   phase: number,
+  signalQuality: number,
   size: number,
   sonarGain: number
 ): void {
   attributes.positions.push(position[0], position[1], position[2]);
   attributes.colors.push(color[0], color[1], color[2]);
   attributes.phases.push(phase);
+  attributes.signalQualities.push(signalQuality);
   attributes.sizes.push(size);
   attributes.sonarGains.push(sonarGain);
 }
@@ -233,6 +248,7 @@ function createParticleGeometry(attributes: ParticleAttributes): THREE.BufferGeo
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(attributes.positions, 3));
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(attributes.colors, 3));
   geometry.setAttribute("aPhase", new THREE.Float32BufferAttribute(attributes.phases, 1));
+  geometry.setAttribute("aSignalQuality", new THREE.Float32BufferAttribute(attributes.signalQualities, 1));
   geometry.setAttribute("aSize", new THREE.Float32BufferAttribute(attributes.sizes, 1));
   geometry.setAttribute("aSonarGain", new THREE.Float32BufferAttribute(attributes.sonarGains, 1));
   return geometry;
@@ -243,6 +259,7 @@ function buildMapParticleAttributes(terrain: TerrainField): ParticleAttributes {
     colors: [],
     phases: [],
     positions: [],
+    signalQualities: [],
     sizes: [],
     sonarGains: []
   };
@@ -253,6 +270,8 @@ function buildMapParticleAttributes(terrain: TerrainField): ParticleAttributes {
       const colorPhase = hash2(terrain.seed + 37, ix, iz);
       const depthGlow = Math.max(0, Math.min(1, (-y + terrain.amplitude * 0.32) / Math.max(1, terrain.amplitude)));
       const signalNoise = hash2(terrain.seed + 101, ix, iz);
+      const confidenceNoise = hash2(terrain.seed + 641, ix * 3, iz * 5);
+      const ridgeBreak = Math.abs(hash2(terrain.seed + 857, Math.floor(x * 0.17), Math.floor(z * 0.17)) - 0.5) * 0.42;
 
       pushParticle(
         attributes,
@@ -263,6 +282,7 @@ function buildMapParticleAttributes(terrain: TerrainField): ParticleAttributes {
           0.66 + colorPhase * 0.22 + depthGlow * 0.26
         ],
         signalNoise,
+        Math.max(0.04, Math.min(1, confidenceNoise * 0.82 + depthGlow * 0.24 - ridgeBreak)),
         2.05 + signalNoise * 1.55,
         0.72 + depthGlow * 0.45
       );
@@ -277,6 +297,7 @@ function buildContourParticleAttributes(terrain: TerrainField, linePositions: nu
     colors: [],
     phases: [],
     positions: [],
+    signalQualities: [],
     sizes: [],
     sonarGains: []
   };
@@ -299,16 +320,54 @@ function buildContourParticleAttributes(terrain: TerrainField, linePositions: nu
       const y = ay + (by - ay) * t + Math.abs(jitter) * 0.18;
       const z = az + (bz - az) * t + (hash2(terrain.seed + 503, phaseSeed, sample) - 0.5) * 0.34;
       const colorPhase = hash2(terrain.seed + 401, phaseSeed, sample);
+      const confidence = hash2(terrain.seed + 887, phaseSeed, sample);
 
       pushParticle(
         attributes,
         [x, y, z],
         [0.02 + colorPhase * 0.08, 0.66 + colorPhase * 0.24, 0.8 + colorPhase * 0.16],
         colorPhase,
+        0.28 + confidence * 0.72,
         1.55 + colorPhase * 1.15,
         1.1
       );
     }
+  }
+
+  return attributes;
+}
+
+function buildAnomalyParticleAttributes(terrain: TerrainField): ParticleAttributes {
+  const attributes: ParticleAttributes = {
+    colors: [],
+    phases: [],
+    positions: [],
+    signalQualities: [],
+    sizes: [],
+    sonarGains: []
+  };
+  const halfSize = terrain.size / 2;
+
+  for (let i = 0; i < ANOMALY_PARTICLE_COUNT; i += 1) {
+    const x = (hash2(terrain.seed + 1201, i, 0) - 0.5) * terrain.size * 1.05;
+    const z = (hash2(terrain.seed + 1207, i, 1) - 0.5) * terrain.size * 1.05;
+    const ground = terrain.heightAt(
+      Math.max(-halfSize, Math.min(halfSize, x)),
+      Math.max(-halfSize, Math.min(halfSize, z))
+    );
+    const y = ground + 5 + hash2(terrain.seed + 1213, i, 2) * 46;
+    const phase = hash2(terrain.seed + 1223, i, 3);
+    const warm = hash2(terrain.seed + 1229, i, 4);
+
+    pushParticle(
+      attributes,
+      [x, y, z],
+      [0.08 + warm * 0.22, 0.74 + warm * 0.18, 0.68 + warm * 0.28],
+      phase,
+      0.45 + phase * 0.55,
+      1.7 + phase * 1.6,
+      0.35 + phase * 0.35
+    );
   }
 
   return attributes;
@@ -334,6 +393,11 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
     createParticleMaterial(0.92, 0.42)
   );
   mapParticles.name = "terrain-map-particles";
+  const anomalyParticles = new THREE.Points(
+    createParticleGeometry(buildAnomalyParticleAttributes(terrain)),
+    createParticleMaterial(0.48, 0.36)
+  );
+  anomalyParticles.name = "terrain-scan-anomalies";
 
   const linePositions = buildContourLinePositions(terrain, {
     contourCount: LINE_CONTOUR_COUNT,
@@ -400,7 +464,7 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
   );
   sonarRing.name = "terrain-sonar-ground-ring";
 
-  group.add(redLines, blueLines, lines, contourParticles, mapParticles, sonarRing);
+  group.add(redLines, blueLines, lines, contourParticles, mapParticles, anomalyParticles, sonarRing);
   return group;
 }
 
@@ -414,12 +478,13 @@ export type TerrainVisualUpdate = {
 export function updateTerrainVisuals(group: THREE.Group, update: TerrainVisualUpdate): void {
   const contourParticles = group.getObjectByName("terrain-contour-particles") as THREE.Points | undefined;
   const mapParticles = group.getObjectByName("terrain-map-particles") as THREE.Points | undefined;
+  const anomalyParticles = group.getObjectByName("terrain-scan-anomalies") as THREE.Points | undefined;
   const lines = group.getObjectByName("terrain-topographic-lines") as THREE.LineSegments | undefined;
   const sonarRing = group.getObjectByName("terrain-sonar-ground-ring") as THREE.Line | undefined;
   const shimmer = 0.5 + Math.sin(update.time * 2.4) * 0.5;
   const reveal = Math.max(0, Math.min(1, update.sonarReveal));
 
-  for (const points of [contourParticles, mapParticles]) {
+  for (const points of [contourParticles, mapParticles, anomalyParticles]) {
     if (points && points.material instanceof THREE.ShaderMaterial) {
       points.material.uniforms.uSonarOrigin.value.set(
         update.playerPosition.x,
@@ -430,6 +495,10 @@ export function updateTerrainVisuals(group: THREE.Group, update: TerrainVisualUp
       points.material.uniforms.uSonarReveal.value = reveal;
       points.material.uniforms.uTime.value = update.time;
     }
+  }
+  if (anomalyParticles) {
+    anomalyParticles.rotation.y = Math.sin(update.time * 0.17) * 0.025;
+    anomalyParticles.rotation.x = Math.cos(update.time * 0.13) * 0.012;
   }
 
   if (lines && lines.material instanceof THREE.LineBasicMaterial) {

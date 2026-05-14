@@ -12,7 +12,7 @@ export function createSonarPulse(): SonarPulse {
     duration: 2.6,
     radius: 0,
     reveal: 0,
-    speed: 78,
+    speed: 155,
   };
 }
 

@@ -40,8 +40,8 @@ export class TerrainField {
 
     const meanderX = Math.sin(nz * 0.72 + fbm(nx * 0.18, nz * 0.18, this.seed + 301, 3) * 1.4) * this.scale * 1.25;
     const trenchCenter = x - meanderX;
-    const centralTrench = -0.96 * Math.exp(-Math.pow(trenchCenter / (this.scale * 0.82), 2));
-    const shoulderRidges = 0.58 * Math.exp(-Math.pow((Math.abs(trenchCenter) - this.scale * 1.85) / (this.scale * 0.62), 2));
+    const centralTrench = -1.08 * Math.exp(-Math.pow(trenchCenter / (this.scale * 0.58), 2));
+    const shoulderRidges = 0.66 * Math.exp(-Math.pow((Math.abs(trenchCenter) - this.scale * 1.72) / (this.scale * 0.46), 2));
     const farRidges = 0.28 * Math.exp(-Math.pow((Math.abs(x) - this.scale * 3.55) / (this.scale * 1.1), 2));
     const basinA =
       -0.46 *
@@ -61,6 +61,9 @@ export class TerrainField {
       );
     const edgeLift = Math.pow(Math.max(edgeX, edgeZ), 2) * 0.26;
     const broadNoise = fbm(nx * 0.55, nz * 0.55, this.seed, 4) * 0.26;
+    const fractureNoise = fbm(nx * 0.9 + 4.8, nz * 0.9 - 2.1, this.seed + 409, 4);
+    const canyonCuts = -0.24 * Math.exp(-Math.pow(fractureNoise / 0.16, 2));
+    const cliffBands = Math.pow(Math.abs(fbm(nx * 1.65 - 7.3, nz * 1.35 + 2.6, this.seed + 733, 4)), 2.1) * 0.18;
     const brokenRidges = Math.abs(fbm(nx * 1.1 + 9.7, nz * 1.1 - 3.4, this.seed + 17, 3)) * 0.24;
 
     return (
@@ -69,6 +72,8 @@ export class TerrainField {
       farRidges +
       basinA +
       basinB +
+      canyonCuts +
+      cliffBands +
       edgeLift +
       broadNoise +
       brokenRidges
