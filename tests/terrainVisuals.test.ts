@@ -122,6 +122,19 @@ describe("terrain visual line layer", () => {
     }
   });
 
+  it("configures sonar pings as a fading wind wake through particles", () => {
+    const terrain = new TerrainField({ seed: 21, size: 256, scale: 42, amplitude: 34 });
+    const group = createTerrainVisuals(terrain);
+    const mapParticles = group.getObjectByName("terrain-map-particles") as THREE.Points;
+    const material = mapParticles.material as THREE.ShaderMaterial;
+
+    expect(material.uniforms.uPulseWidth.value).toBeGreaterThan(5);
+    expect(material.uniforms.uWakeWidth.value).toBeGreaterThan(material.uniforms.uPulseWidth.value * 3);
+    expect(material.uniforms.uWindStrength.value).toBeGreaterThan(1);
+    expect(material.vertexShader).toContain("windPush");
+    expect(material.fragmentShader).toContain("vWake");
+  });
+
   it("keeps thin contour line opacity stable while particles fade", () => {
     const terrain = new TerrainField({ seed: 21, size: 256, scale: 42, amplitude: 34 });
     const group = createTerrainVisuals(terrain);

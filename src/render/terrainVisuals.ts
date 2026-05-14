@@ -15,6 +15,10 @@ const PASSIVE_SCAN_RANGE = 156;
 const PARTICLE_FOG_RANGE = 320;
 const SENSOR_BEAM_RANGE = 470;
 const SENSOR_BEAM_WIDTH = 0.84;
+const SONAR_PULSE_WIDTH = 10.5;
+const SONAR_WAKE_WIDTH = 72;
+const SONAR_WAKE_OFFSET = 42;
+const SONAR_WIND_STRENGTH = 3.2;
 const SONAR_RING_SEGMENTS = 180;
 
 function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number, number, number] {
@@ -144,25 +148,34 @@ const particleVertexShader = `
   uniform float uBeamWidth;
   uniform float uFogRange;
   uniform float uPassiveRange;
+  uniform float uPulseWidth;
   uniform float uSonarRadius;
   uniform float uSonarReveal;
   uniform float uTime;
+  uniform float uWakeOffset;
+  uniform float uWakeWidth;
   uniform float uWaveStrength;
+  uniform float uWindStrength;
   uniform vec3 uSensorForward;
   uniform vec3 uSonarOrigin;
 
   varying vec3 vColor;
   varying float vAlpha;
   varying float vSignal;
+  varying float vWake;
   varying float vWave;
 
   void main() {
     vec3 displaced = position;
     vec2 delta = position.xz - uSonarOrigin.xz;
     float distanceFromPulse = length(delta);
-    float waveBand = exp(-pow((distanceFromPulse - uSonarRadius) / 9.5, 2.0)) * uSonarReveal * aSonarGain;
-    float wake = exp(-pow((distanceFromPulse - max(0.0, uSonarRadius - 38.0)) / 64.0, 2.0)) * uSonarReveal * 0.44;
+    float leadingEdge = exp(-pow((distanceFromPulse - uSonarRadius) / uPulseWidth, 2.0)) * uSonarReveal * aSonarGain;
+    float wakeCenter = max(0.0, uSonarRadius - uWakeOffset);
+    float wakeEnvelope = exp(-pow((distanceFromPulse - wakeCenter) / uWakeWidth, 2.0)) * uSonarReveal;
     float shimmer = 0.5 + 0.5 * sin(distanceFromPulse * 0.16 - uTime * 9.0 + aPhase * 6.28318);
+    float dustRipple = 0.5 + 0.5 * sin((uSonarRadius - distanceFromPulse) * 0.28 + aPhase * 15.2 - uTime * 4.4);
+    float wake = wakeEnvelope * (0.42 + dustRipple * 0.56) * aSonarGain;
+    float waveBand = leadingEdge + wake * 0.72;
     vec2 toParticle = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, -1.0);
     vec2 beamForward = normalize(uSensorForward.xz);
     float beamAlignment = dot(toParticle, beamForward);
@@ -171,13 +184,14 @@ const particleVertexShader = `
     float beamSignal = beamShape * beamDistance;
     float nearSignal = 1.0 - smoothstep(uPassiveRange * 0.48, uPassiveRange, distanceFromPulse);
     float fogSignal = 1.0 - smoothstep(uPassiveRange * 0.75, uFogRange, distanceFromPulse);
-    float pingSignal = clamp(waveBand * 1.2 + wake * 1.55, 0.0, 1.0);
+    float pingSignal = clamp(leadingEdge * 1.34 + wake * 1.62, 0.0, 1.0);
     float sensorSignal = clamp(max(max(nearSignal, beamSignal), pingSignal) * max(0.12, fogSignal), 0.0, 1.0);
     float dropout = smoothstep(0.08, 0.78, aSignalQuality + sensorSignal * 0.32 + shimmer * 0.18);
     vec2 direction = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, 1.0);
 
-    displaced.y += waveBand * (3.2 + shimmer * 2.6);
-    displaced.xz += direction * waveBand * 0.75;
+    float windPush = (leadingEdge * 1.35 + wake * (0.42 + dustRipple * 0.58)) * uWindStrength;
+    displaced.y += leadingEdge * (3.7 + shimmer * 2.8) + wake * (1.05 + dustRipple * 1.9);
+    displaced.xz += direction * windPush;
 
     vec4 modelViewPosition = modelViewMatrix * vec4(displaced, 1.0);
     gl_Position = projectionMatrix * modelViewPosition;
@@ -185,8 +199,9 @@ const particleVertexShader = `
 
     vColor = color;
     vSignal = sensorSignal;
+    vWake = wake;
     vWave = waveBand;
-    vAlpha = clamp((uBaseOpacity * sensorSignal + waveBand * uWaveStrength + wake * 0.36 + shimmer * 0.05) * dropout, 0.0, 1.0);
+    vAlpha = clamp((uBaseOpacity * sensorSignal + leadingEdge * uWaveStrength + wake * 0.72 + shimmer * 0.05) * dropout, 0.0, 1.0);
   }
 `;
 
@@ -194,6 +209,7 @@ const particleFragmentShader = `
   varying vec3 vColor;
   varying float vAlpha;
   varying float vSignal;
+  varying float vWake;
   varying float vWave;
 
   void main() {
@@ -203,9 +219,10 @@ const particleFragmentShader = `
     float green = smoothstep(0.44, 0.13, length(centered));
     float blue = smoothstep(0.44, 0.13, length(centered - vec2(split, 0.0)));
     float core = max(max(red, green), blue);
-    float halo = smoothstep(0.56, 0.0, length(centered)) * (0.18 + vSignal * 0.22 + vWave * 0.5);
+    float halo = smoothstep(0.56, 0.0, length(centered)) * (0.18 + vSignal * 0.22 + vWave * 0.5 + vWake * 0.22);
     vec3 scanColor = vec3(red * (0.34 + vColor.r), green * vColor.g, blue * vColor.b);
-    vec3 hotColor = mix(scanColor, vec3(0.4, 1.0, 0.96), clamp(vWave * 0.58 + vSignal * 0.06, 0.0, 1.0));
+    vec3 wakeColor = mix(vec3(0.18, 0.92, 1.0), vec3(0.72, 1.0, 0.96), clamp(vWake * 1.25, 0.0, 1.0));
+    vec3 hotColor = mix(scanColor, wakeColor, clamp(vWave * 0.58 + vSignal * 0.06 + vWake * 0.12, 0.0, 1.0));
     float alpha = (core + halo) * vAlpha;
 
     if (alpha < 0.01) {
@@ -224,12 +241,16 @@ function createParticleMaterial(baseOpacity: number, waveStrength: number): THRE
       uBeamWidth: { value: SENSOR_BEAM_WIDTH },
       uFogRange: { value: PARTICLE_FOG_RANGE },
       uPassiveRange: { value: PASSIVE_SCAN_RANGE },
+      uPulseWidth: { value: SONAR_PULSE_WIDTH },
       uSensorForward: { value: new THREE.Vector3(0, 0, -1) },
       uSonarOrigin: { value: new THREE.Vector3() },
       uSonarRadius: { value: 0 },
       uSonarReveal: { value: 0 },
       uTime: { value: 0 },
-      uWaveStrength: { value: waveStrength }
+      uWakeOffset: { value: SONAR_WAKE_OFFSET },
+      uWakeWidth: { value: SONAR_WAKE_WIDTH },
+      uWaveStrength: { value: waveStrength },
+      uWindStrength: { value: SONAR_WIND_STRENGTH }
     },
     vertexShader: particleVertexShader,
     fragmentShader: particleFragmentShader,
