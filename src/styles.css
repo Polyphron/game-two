@@ -40,10 +40,275 @@ body,
   overflow: hidden;
 }
 
+.viewport::before,
+.viewport::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  content: "";
+}
+
+.viewport::before {
+  opacity: 0.38;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0) 0 2px,
+      rgba(39, 255, 230, 0.07) 2px 3px,
+      rgba(0, 0, 0, 0) 3px 5px
+    );
+  mix-blend-mode: screen;
+}
+
+.viewport::after {
+  background:
+    radial-gradient(circle at 50% 48%, rgba(0, 210, 255, calc(var(--sonar-reveal, 0) * 0.12)), transparent 18%),
+    radial-gradient(circle at 50% 48%, transparent 0 42%, rgba(0, 0, 0, 0.66) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.82));
+}
+
 .viewport canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.cockpit-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  color: #ffae00;
+  font-family:
+    "Courier New",
+    "Lucida Console",
+    monospace;
+  font-size: clamp(0.58rem, 0.72vw, 0.86rem);
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.activity-feed,
+.score-panel,
+.left-stats {
+  position: absolute;
+  border: 1px solid #ffcc00;
+  background: rgba(0, 0, 0, 0.46);
+  box-shadow: 0 0 18px rgba(255, 174, 0, 0.08);
+}
+
+.activity-feed {
+  top: clamp(14px, 2.2vw, 30px);
+  left: clamp(14px, 2.2vw, 28px);
+  width: min(31vw, 292px);
+  min-height: 44px;
+  padding: 8px 10px;
+}
+
+.activity-feed span,
+.score-panel span,
+.left-stats span {
+  display: block;
+  line-height: 1.55;
+}
+
+.activity-feed strong,
+.score-panel strong {
+  display: block;
+  margin-top: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compass-strip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(34px, 1fr));
+  width: min(42vw, 420px);
+  height: 48px;
+  transform: translateX(-50%);
+  border-top: 2px solid #ff7400;
+  color: #ffae00;
+  text-align: center;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 12px, #ff7400 12px 14px, transparent 14px 28px),
+    linear-gradient(180deg, rgba(255, 116, 0, 0.22), transparent);
+}
+
+.compass-strip span {
+  align-self: end;
+  padding-bottom: 3px;
+  font-size: 0.66rem;
+}
+
+.score-panel {
+  top: clamp(14px, 2.2vw, 30px);
+  right: clamp(14px, 2.2vw, 28px);
+  width: min(28vw, 290px);
+  min-height: 182px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.score-panel strong {
+  display: grid;
+  grid-template-columns: 1fr auto;
+}
+
+.score-panel strong::after {
+  color: #ff7400;
+  content: "W 5174";
+}
+
+.score-panel .session-live {
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 204, 0, 0.45);
+}
+
+.left-stats {
+  left: clamp(14px, 2.2vw, 28px);
+  bottom: clamp(142px, 20vh, 220px);
+  width: min(18vw, 138px);
+  padding: 8px 10px;
+}
+
+.left-stats span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.left-stats span::after {
+  content: "0";
+}
+
+.reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(18vw, 188px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -47%);
+  border-right: 2px dotted rgba(255, 116, 0, 0.52);
+  border-left: 2px dotted rgba(255, 116, 0, 0.52);
+  border-radius: 50%;
+  opacity: 0.92;
+}
+
+.reticle::before,
+.reticle::after,
+.reticle span,
+.reticle span::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.reticle::before {
+  width: 32%;
+  height: 32%;
+  border-right: 2px solid #ffae00;
+  border-left: 2px solid #ffae00;
+  border-radius: 50%;
+}
+
+.reticle::after {
+  width: 7%;
+  height: 7%;
+  border: 2px solid #ffae00;
+  border-radius: 50%;
+}
+
+.reticle span {
+  width: 46%;
+  height: 2px;
+  background: linear-gradient(90deg, #ffae00 0 28%, transparent 28% 72%, #ffae00 72% 100%);
+}
+
+.reticle span::before {
+  width: 2px;
+  height: 46%;
+  background: linear-gradient(180deg, #ffae00 0 28%, transparent 28% 72%, #ffae00 72% 100%);
+}
+
+.bottom-hud {
+  position: absolute;
+  right: 0;
+  bottom: 16px;
+  left: 0;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: clamp(16px, 2.8vw, 42px);
+  height: 100px;
+}
+
+.bottom-hud::before {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  width: min(48vw, 640px);
+  height: 76px;
+  transform: translateX(-50%);
+  border-top: 1px solid #ff9f00;
+  border-radius: 50% 50% 0 0;
+  opacity: 0.7;
+  content: "";
+}
+
+.ship-mark {
+  position: relative;
+  width: 74px;
+  height: 46px;
+  border: 2px solid #fff5d2;
+  border-radius: 50%;
+  background:
+    linear-gradient(150deg, transparent 38%, #fff5d2 39% 43%, transparent 44%),
+    linear-gradient(24deg, transparent 42%, #fff5d2 43% 48%, transparent 49%);
+  box-shadow: 0 0 18px rgba(255, 245, 210, 0.52);
+}
+
+.hull-bars,
+.shield-bars {
+  display: flex;
+  align-items: end;
+  gap: 4px;
+  height: 42px;
+}
+
+.hull-bars span,
+.shield-bars span {
+  width: 6px;
+  height: 32px;
+  background: #ffcc00;
+  box-shadow: 0 0 8px rgba(255, 204, 0, 0.6);
+}
+
+.shield-bars span {
+  background: #57fff1;
+  box-shadow: 0 0 8px rgba(87, 255, 241, 0.62);
+}
+
+.sonar-core {
+  width: 82px;
+  aspect-ratio: 1;
+  border: 2px solid #ff9f00;
+  border-radius: 50%;
+  background:
+    repeating-radial-gradient(circle, transparent 0 8px, rgba(255, 159, 0, 0.78) 8px 10px, transparent 10px 16px);
+  opacity: calc(0.55 + var(--sonar-reveal, 0) * 0.45);
+  transform: scale(calc(1 + var(--sonar-reveal, 0) * 0.08));
+  box-shadow: 0 0 calc(18px + var(--sonar-reveal, 0) * 34px) rgba(255, 159, 0, 0.68);
 }
 
 button {
@@ -144,6 +409,59 @@ h1 {
 }
 
 @media (max-width: 680px) {
+  .activity-feed {
+    width: 122px;
+    min-height: 48px;
+    padding: 6px 8px;
+  }
+
+  .score-panel {
+    display: none;
+  }
+
+  .compass-strip {
+    top: 76px;
+    width: 74vw;
+    height: 34px;
+  }
+
+  .left-stats {
+    width: 70px;
+    bottom: 168px;
+    padding: 6px 8px;
+  }
+
+  .reticle {
+    width: 110px;
+  }
+
+  .bottom-hud {
+    bottom: 8px;
+    gap: 10px;
+    height: 76px;
+  }
+
+  .ship-mark {
+    width: 54px;
+    height: 34px;
+  }
+
+  .hull-bars,
+  .shield-bars {
+    gap: 3px;
+    height: 34px;
+  }
+
+  .hull-bars span,
+  .shield-bars span {
+    width: 4px;
+    height: 28px;
+  }
+
+  .sonar-core {
+    width: 62px;
+  }
+
   .start-screen {
     grid-template-columns: 52px minmax(0, 1fr);
   }

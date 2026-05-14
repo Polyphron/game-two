@@ -46,16 +46,16 @@ export function createWorldVisuals(seed: number): THREE.Group {
   stars.name = "distant-starfield-points";
 
   const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(34, 48, 32),
+    new THREE.SphereGeometry(24, 48, 32),
     new THREE.MeshBasicMaterial({
       color: 0xe9ffff
     })
   );
   moon.name = "bright-celestial-body";
-  moon.position.set(166, 172, -330);
+  moon.position.set(84, 86, -286);
 
   const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(48, 48, 32),
+    new THREE.SphereGeometry(40, 48, 32),
     new THREE.MeshBasicMaterial({
       color: 0x39f6ff,
       transparent: true,

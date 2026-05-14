@@ -2,10 +2,11 @@ import * as THREE from "three";
 import type { TerrainField } from "../terrain/TerrainField";
 import { hash2 } from "../terrain/noise";
 
-const TERRAIN_GRID_STEPS = 84;
+const TERRAIN_GRID_STEPS = 96;
 const TERRAIN_HEIGHT_LIFT = 0.65;
-const CONTOUR_COUNT = 28;
+const CONTOUR_COUNT = 52;
 const DOT_JITTER = 0.32;
+const SONAR_RING_SEGMENTS = 180;
 
 function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number, number, number] {
   const halfSize = terrain.size / 2;
@@ -134,11 +135,11 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
     pointGeometry,
     new THREE.PointsMaterial({
       color: 0x67fff0,
-      size: 1.35,
-      sizeAttenuation: true,
+      size: 1.1,
+      sizeAttenuation: false,
       vertexColors: true,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.48,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     })
@@ -158,13 +159,64 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
     new THREE.LineBasicMaterial({
       color: 0x50ff8d,
       transparent: true,
-      opacity: 0.34,
+      opacity: 0.38,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     })
   );
   lines.name = "terrain-topographic-lines";
 
-  group.add(lines, points);
+  const sonarRingPositions: number[] = [];
+  for (let i = 0; i <= SONAR_RING_SEGMENTS; i += 1) {
+    const theta = (i / SONAR_RING_SEGMENTS) * Math.PI * 2;
+    sonarRingPositions.push(Math.cos(theta), TERRAIN_HEIGHT_LIFT + 0.85, Math.sin(theta));
+  }
+  const sonarRingGeometry = new THREE.BufferGeometry();
+  sonarRingGeometry.setAttribute("position", new THREE.Float32BufferAttribute(sonarRingPositions, 3));
+  const sonarRing = new THREE.Line(
+    sonarRingGeometry,
+    new THREE.LineBasicMaterial({
+      color: 0xff9f00,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    })
+  );
+  sonarRing.name = "terrain-sonar-ground-ring";
+
+  group.add(lines, points, sonarRing);
   return group;
+}
+
+export type TerrainVisualUpdate = {
+  playerPosition: { x: number; y: number; z: number };
+  sonarRadius: number;
+  sonarReveal: number;
+  time: number;
+};
+
+export function updateTerrainVisuals(group: THREE.Group, update: TerrainVisualUpdate): void {
+  const dots = group.getObjectByName("terrain-particle-dots") as THREE.Points | undefined;
+  const lines = group.getObjectByName("terrain-topographic-lines") as THREE.LineSegments | undefined;
+  const sonarRing = group.getObjectByName("terrain-sonar-ground-ring") as THREE.Line | undefined;
+  const shimmer = 0.5 + Math.sin(update.time * 2.4) * 0.5;
+  const reveal = Math.max(0, Math.min(1, update.sonarReveal));
+
+  if (dots && dots.material instanceof THREE.PointsMaterial) {
+    dots.material.opacity = 0.34 + reveal * 0.44 + shimmer * 0.03;
+    dots.material.size = 0.92 + reveal * 0.72;
+  }
+
+  if (lines && lines.material instanceof THREE.LineBasicMaterial) {
+    lines.material.opacity = 0.2 + reveal * 0.5 + shimmer * 0.025;
+  }
+
+  if (sonarRing && sonarRing.material instanceof THREE.LineBasicMaterial) {
+    const radius = Math.max(1, update.sonarRadius);
+    sonarRing.visible = reveal > 0.01;
+    sonarRing.position.set(update.playerPosition.x, update.playerPosition.y, update.playerPosition.z);
+    sonarRing.scale.set(radius, 1, radius);
+    sonarRing.material.opacity = reveal * 0.78;
+  }
 }
