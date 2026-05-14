@@ -2,15 +2,15 @@ import * as THREE from "three";
 import type { TerrainField } from "../terrain/TerrainField";
 import { hash2 } from "../terrain/noise";
 
-const MAP_PARTICLE_STEPS = 256;
+const MAP_PARTICLE_STEPS = 288;
 const LINE_CONTOUR_STEPS = 88;
 const LINE_CONTOUR_COUNT = 22;
 const PARTICLE_CONTOUR_STEPS = 132;
 const PARTICLE_CONTOUR_COUNT = 72;
 const TERRAIN_HEIGHT_LIFT = 0.65;
-const DOT_JITTER = 0.58;
+const DOT_JITTER = 1.08;
 const CONTOUR_PARTICLE_SPACING = 1.2;
-const ANOMALY_PARTICLE_COUNT = 720;
+const ANOMALY_PARTICLE_COUNT = 920;
 const PASSIVE_SCAN_RANGE = 156;
 const PARTICLE_FOG_RANGE = 320;
 const SENSOR_BEAM_RANGE = 470;
@@ -22,11 +22,16 @@ function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number
   const cellSize = terrain.size / MAP_PARTICLE_STEPS;
   const jitterX = (hash2(terrain.seed, ix, iz) - 0.5) * cellSize * DOT_JITTER;
   const jitterZ = (hash2(terrain.seed + 19, ix, iz) - 0.5) * cellSize * DOT_JITTER;
-  const edgeX = ix === 0 || ix === MAP_PARTICLE_STEPS ? 0 : jitterX;
-  const edgeZ = iz === 0 || iz === MAP_PARTICLE_STEPS ? 0 : jitterZ;
+  const warpCellX = Math.floor(ix * 0.36);
+  const warpCellZ = Math.floor(iz * 0.36);
+  const warpX = (hash2(terrain.seed + 211, warpCellX, warpCellZ) - 0.5) * cellSize * 0.74;
+  const warpZ = (hash2(terrain.seed + 307, warpCellZ, warpCellX) - 0.5) * cellSize * 0.74;
+  const edgeX = ix === 0 || ix === MAP_PARTICLE_STEPS ? 0 : jitterX + warpX;
+  const edgeZ = iz === 0 || iz === MAP_PARTICLE_STEPS ? 0 : jitterZ + warpZ;
   const x = -halfSize + (ix / MAP_PARTICLE_STEPS) * terrain.size + edgeX;
   const z = -halfSize + (iz / MAP_PARTICLE_STEPS) * terrain.size + edgeZ;
-  const y = terrain.heightAt(x, z) + TERRAIN_HEIGHT_LIFT;
+  const liftNoise = (hash2(terrain.seed + 313, ix * 5, iz * 7) - 0.5) * 0.8;
+  const y = terrain.heightAt(x, z) + TERRAIN_HEIGHT_LIFT + liftNoise;
 
   return [x, y, z];
 }
@@ -176,12 +181,12 @@ const particleVertexShader = `
 
     vec4 modelViewPosition = modelViewMatrix * vec4(displaced, 1.0);
     gl_Position = projectionMatrix * modelViewPosition;
-    gl_PointSize = clamp(aSize * (1.0 + waveBand * 1.1) * (420.0 / max(80.0, -modelViewPosition.z)), 1.0, 7.2);
+    gl_PointSize = clamp(aSize * (1.0 + waveBand * 1.24 + sensorSignal * 0.18) * (430.0 / max(80.0, -modelViewPosition.z)), 1.0, 8.4);
 
     vColor = color;
     vSignal = sensorSignal;
     vWave = waveBand;
-    vAlpha = clamp((uBaseOpacity * sensorSignal + waveBand * uWaveStrength + wake * 0.32 + shimmer * 0.035) * dropout, 0.0, 1.0);
+    vAlpha = clamp((uBaseOpacity * sensorSignal + waveBand * uWaveStrength + wake * 0.36 + shimmer * 0.05) * dropout, 0.0, 1.0);
   }
 `;
 
@@ -198,9 +203,9 @@ const particleFragmentShader = `
     float green = smoothstep(0.44, 0.13, length(centered));
     float blue = smoothstep(0.44, 0.13, length(centered - vec2(split, 0.0)));
     float core = max(max(red, green), blue);
-    float halo = smoothstep(0.5, 0.0, length(centered)) * (0.1 + vSignal * 0.12 + vWave * 0.34);
+    float halo = smoothstep(0.56, 0.0, length(centered)) * (0.18 + vSignal * 0.22 + vWave * 0.5);
     vec3 scanColor = vec3(red * (0.34 + vColor.r), green * vColor.g, blue * vColor.b);
-    vec3 hotColor = mix(scanColor, vec3(0.28, 1.0, 0.9), clamp(vWave * 0.45, 0.0, 1.0));
+    vec3 hotColor = mix(scanColor, vec3(0.4, 1.0, 0.96), clamp(vWave * 0.58 + vSignal * 0.06, 0.0, 1.0));
     float alpha = (core + halo) * vAlpha;
 
     if (alpha < 0.01) {
@@ -290,6 +295,9 @@ function buildMapParticleAttributes(terrain: TerrainField): ParticleAttributes {
       const signalNoise = hash2(terrain.seed + 101, ix, iz);
       const confidenceNoise = hash2(terrain.seed + 641, ix * 3, iz * 5);
       const ridgeBreak = Math.abs(hash2(terrain.seed + 857, Math.floor(x * 0.17), Math.floor(z * 0.17)) - 0.5) * 0.42;
+      const scatterNoise = hash2(terrain.seed + 991, Math.floor(x * 0.53), Math.floor(z * 0.47));
+      const clumpNoise = hash2(terrain.seed + 997, Math.floor(ix / 3), Math.floor(iz / 3));
+      const size = 1.45 + signalNoise * 1.7 + scatterNoise * 1.45 + depthGlow * 0.72 + clumpNoise * 0.42;
 
       pushParticle(
         attributes,
@@ -301,7 +309,7 @@ function buildMapParticleAttributes(terrain: TerrainField): ParticleAttributes {
         ],
         signalNoise,
         Math.max(0.04, Math.min(1, confidenceNoise * 0.82 + depthGlow * 0.24 - ridgeBreak)),
-        2.05 + signalNoise * 1.55,
+        size,
         0.72 + depthGlow * 0.45
       );
     }
@@ -346,7 +354,7 @@ function buildContourParticleAttributes(terrain: TerrainField, linePositions: nu
         [0.02 + colorPhase * 0.08, 0.66 + colorPhase * 0.24, 0.8 + colorPhase * 0.16],
         colorPhase,
         0.28 + confidence * 0.72,
-        1.55 + colorPhase * 1.15,
+        1.35 + colorPhase * 1.45,
         1.1
       );
     }
@@ -383,7 +391,7 @@ function buildAnomalyParticleAttributes(terrain: TerrainField): ParticleAttribut
       [0.08 + warm * 0.22, 0.74 + warm * 0.18, 0.68 + warm * 0.28],
       phase,
       0.45 + phase * 0.55,
-      1.7 + phase * 1.6,
+      1.65 + phase * 2.2,
       0.35 + phase * 0.35
     );
   }
@@ -402,18 +410,18 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
   });
   const contourParticles = new THREE.Points(
     createParticleGeometry(buildContourParticleAttributes(terrain, contourParticleLines)),
-    createParticleMaterial(0.46, 0.48)
+    createParticleMaterial(0.52, 0.56)
   );
   contourParticles.name = "terrain-contour-particles";
 
   const mapParticles = new THREE.Points(
     createParticleGeometry(buildMapParticleAttributes(terrain)),
-    createParticleMaterial(0.92, 0.42)
+    createParticleMaterial(1.02, 0.5)
   );
   mapParticles.name = "terrain-map-particles";
   const anomalyParticles = new THREE.Points(
     createParticleGeometry(buildAnomalyParticleAttributes(terrain)),
-    createParticleMaterial(0.48, 0.36)
+    createParticleMaterial(0.58, 0.42)
   );
   anomalyParticles.name = "terrain-scan-anomalies";
 
@@ -434,7 +442,7 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
     new THREE.LineBasicMaterial({
       color: 0x1cf6ff,
       transparent: true,
-      opacity: 0.12,
+      opacity: 0.075,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     })
@@ -445,7 +453,7 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
     new THREE.LineBasicMaterial({
       color: 0xff1b2d,
       transparent: true,
-      opacity: 0.055,
+      opacity: 0.032,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     })
@@ -456,7 +464,7 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
     new THREE.LineBasicMaterial({
       color: 0x2458ff,
       transparent: true,
-      opacity: 0.06,
+      opacity: 0.036,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     })

@@ -57,9 +57,11 @@ describe("terrain visual line layer", () => {
     const contourPointCount = contourParticles.geometry.getAttribute("position").count;
     const mapPointCount = mapParticles.geometry.getAttribute("position").count;
     const lineVertexCount = thinLines.geometry.getAttribute("position").count;
+    const lineMaterial = thinLines.material as THREE.LineBasicMaterial;
 
     expect(contourPointCount + mapPointCount).toBeGreaterThan(lineVertexCount * 3);
-    expect(mapPointCount).toBeGreaterThan(25_000);
+    expect(mapPointCount).toBeGreaterThan(80_000);
+    expect(lineMaterial.opacity).toBeLessThan(0.1);
   });
 
   it("stores uneven signal confidence and loose scan anomalies", () => {
@@ -68,19 +70,26 @@ describe("terrain visual line layer", () => {
     const mapParticles = group.getObjectByName("terrain-map-particles") as THREE.Points;
     const anomalies = group.getObjectByName("terrain-scan-anomalies") as THREE.Points;
     const signalQuality = mapParticles.geometry.getAttribute("aSignalQuality");
-    const values = signalQuality.array as ArrayLike<number>;
-    let min = Infinity;
-    let max = -Infinity;
+    const sizes = mapParticles.geometry.getAttribute("aSize");
+    const confidenceValues = signalQuality.array as ArrayLike<number>;
+    const sizeValues = sizes.array as ArrayLike<number>;
+    let confidenceMin = Infinity;
+    let confidenceMax = -Infinity;
+    let sizeMin = Infinity;
+    let sizeMax = -Infinity;
 
-    for (let i = 0; i < values.length; i += Math.max(1, Math.floor(values.length / 1000))) {
-      min = Math.min(min, values[i]);
-      max = Math.max(max, values[i]);
+    for (let i = 0; i < confidenceValues.length; i += Math.max(1, Math.floor(confidenceValues.length / 1000))) {
+      confidenceMin = Math.min(confidenceMin, confidenceValues[i]);
+      confidenceMax = Math.max(confidenceMax, confidenceValues[i]);
+      sizeMin = Math.min(sizeMin, sizeValues[i]);
+      sizeMax = Math.max(sizeMax, sizeValues[i]);
     }
 
     expect(signalQuality.count).toBe(mapParticles.geometry.getAttribute("position").count);
-    expect(max - min).toBeGreaterThan(0.4);
+    expect(confidenceMax - confidenceMin).toBeGreaterThan(0.4);
+    expect(sizeMax - sizeMin).toBeGreaterThan(2);
     expect(anomalies).toBeInstanceOf(THREE.Points);
-    expect(anomalies.geometry.getAttribute("position").count).toBeGreaterThan(300);
+    expect(anomalies.geometry.getAttribute("position").count).toBeGreaterThan(800);
   });
 
   it("updates sonar uniforms on both particle layers", () => {

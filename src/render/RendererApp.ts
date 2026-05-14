@@ -41,7 +41,12 @@ export class RendererApp {
 
   dispose(): void {
     this.scene.traverse((object) => {
-      if (object instanceof THREE.Mesh || object instanceof THREE.Points || object instanceof THREE.LineSegments) {
+      if (
+        object instanceof THREE.Mesh ||
+        object instanceof THREE.Points ||
+        object instanceof THREE.LineSegments ||
+        object instanceof THREE.Sprite
+      ) {
         object.geometry.dispose();
         if (Array.isArray(object.material)) {
           object.material.forEach((material) => material.dispose());

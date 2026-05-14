@@ -83,18 +83,26 @@ describe("TerrainField", () => {
     const terrain = new TerrainField({ seed: 20260514 });
     let minHeight = Infinity;
     let maxHeight = -Infinity;
+    let strongestLocalBreak = 0;
 
     for (let z = -220; z <= 220; z += 20) {
       for (let x = -220; x <= 220; x += 20) {
         const height = terrain.heightAt(x, z);
         minHeight = Math.min(minHeight, height);
         maxHeight = Math.max(maxHeight, height);
+        strongestLocalBreak = Math.max(
+          strongestLocalBreak,
+          Math.abs(height - terrain.heightAt(x + 5, z)),
+          Math.abs(height - terrain.heightAt(x, z + 5)),
+          Math.abs(height - terrain.heightAt(x + 5, z + 5))
+        );
       }
     }
 
     expect(maxHeight - minHeight).toBeGreaterThan(58);
     expect(minHeight).toBeLessThan(-10);
     expect(maxHeight).toBeGreaterThan(35);
+    expect(strongestLocalBreak).toBeGreaterThan(3.2);
     expect(terrain.size).toBeGreaterThanOrEqual(768);
   });
 });
