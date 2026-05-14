@@ -9,10 +9,10 @@ export type SonarPulse = {
 export function createSonarPulse(): SonarPulse {
   return {
     age: Number.POSITIVE_INFINITY,
-    duration: 2.6,
+    duration: 1.95,
     radius: 0,
     reveal: 0,
-    speed: 155,
+    speed: 230,
   };
 }
 

@@ -15,10 +15,10 @@ const PASSIVE_SCAN_RANGE = 156;
 const PARTICLE_FOG_RANGE = 320;
 const SENSOR_BEAM_RANGE = 470;
 const SENSOR_BEAM_WIDTH = 0.84;
-const SONAR_PULSE_WIDTH = 10.5;
-const SONAR_WAKE_WIDTH = 72;
-const SONAR_WAKE_OFFSET = 42;
-const SONAR_WIND_STRENGTH = 3.2;
+const SONAR_PULSE_WIDTH = 7.5;
+const SONAR_WAKE_WIDTH = 46;
+const SONAR_WAKE_OFFSET = 24;
+const SONAR_WIND_STRENGTH = 1.65;
 const SONAR_RING_SEGMENTS = 180;
 
 function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number, number, number] {
@@ -161,6 +161,7 @@ const particleVertexShader = `
 
   varying vec3 vColor;
   varying float vAlpha;
+  varying float vPhaseShift;
   varying float vSignal;
   varying float vWake;
   varying float vWave;
@@ -174,8 +175,9 @@ const particleVertexShader = `
     float wakeEnvelope = exp(-pow((distanceFromPulse - wakeCenter) / uWakeWidth, 2.0)) * uSonarReveal;
     float shimmer = 0.5 + 0.5 * sin(distanceFromPulse * 0.16 - uTime * 9.0 + aPhase * 6.28318);
     float dustRipple = 0.5 + 0.5 * sin((uSonarRadius - distanceFromPulse) * 0.28 + aPhase * 15.2 - uTime * 4.4);
-    float wake = wakeEnvelope * (0.42 + dustRipple * 0.56) * aSonarGain;
-    float waveBand = leadingEdge + wake * 0.72;
+    float wake = wakeEnvelope * (0.22 + dustRipple * 0.42) * aSonarGain;
+    float phaseGust = wakeEnvelope * dustRipple * aSonarGain;
+    float waveBand = leadingEdge + wake * 0.38;
     vec2 toParticle = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, -1.0);
     vec2 beamForward = normalize(uSensorForward.xz);
     float beamAlignment = dot(toParticle, beamForward);
@@ -189,8 +191,8 @@ const particleVertexShader = `
     float dropout = smoothstep(0.08, 0.78, aSignalQuality + sensorSignal * 0.32 + shimmer * 0.18);
     vec2 direction = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, 1.0);
 
-    float windPush = (leadingEdge * 1.35 + wake * (0.42 + dustRipple * 0.58)) * uWindStrength;
-    displaced.y += leadingEdge * (3.7 + shimmer * 2.8) + wake * (1.05 + dustRipple * 1.9);
+    float windPush = (leadingEdge * 0.8 + wake * (0.18 + dustRipple * 0.34)) * uWindStrength;
+    displaced.y += leadingEdge * (1.25 + shimmer * 0.9) + wake * (0.3 + dustRipple * 0.52);
     displaced.xz += direction * windPush;
 
     vec4 modelViewPosition = modelViewMatrix * vec4(displaced, 1.0);
@@ -198,31 +200,34 @@ const particleVertexShader = `
     gl_PointSize = clamp(aSize * (1.0 + waveBand * 1.24 + sensorSignal * 0.18) * (430.0 / max(80.0, -modelViewPosition.z)), 1.0, 8.4);
 
     vColor = color;
+    vPhaseShift = phaseGust;
     vSignal = sensorSignal;
     vWake = wake;
     vWave = waveBand;
-    vAlpha = clamp((uBaseOpacity * sensorSignal + leadingEdge * uWaveStrength + wake * 0.72 + shimmer * 0.05) * dropout, 0.0, 1.0);
+    vAlpha = clamp((uBaseOpacity * sensorSignal + leadingEdge * uWaveStrength * 0.72 + wake * 0.38 + phaseGust * 0.16 + shimmer * 0.04) * dropout, 0.0, 1.0);
   }
 `;
 
 const particleFragmentShader = `
   varying vec3 vColor;
   varying float vAlpha;
+  varying float vPhaseShift;
   varying float vSignal;
   varying float vWake;
   varying float vWave;
 
   void main() {
     vec2 centered = gl_PointCoord - vec2(0.5);
-    float split = 0.105 + vWave * 0.05;
+    float phaseShimmer = vPhaseShift * (0.45 + 0.55 * sin(vPhaseShift * 19.0 + centered.x * 8.0));
+    float split = 0.105 + vWave * 0.026 + phaseShimmer * 0.07;
     float red = smoothstep(0.44, 0.13, length(centered + vec2(split, 0.0)));
     float green = smoothstep(0.44, 0.13, length(centered));
     float blue = smoothstep(0.44, 0.13, length(centered - vec2(split, 0.0)));
     float core = max(max(red, green), blue);
-    float halo = smoothstep(0.56, 0.0, length(centered)) * (0.18 + vSignal * 0.22 + vWave * 0.5 + vWake * 0.22);
-    vec3 scanColor = vec3(red * (0.34 + vColor.r), green * vColor.g, blue * vColor.b);
+    float halo = smoothstep(0.56, 0.0, length(centered)) * (0.16 + vSignal * 0.18 + vWave * 0.26 + vWake * 0.12);
+    vec3 scanColor = vec3(red * (0.34 + vColor.r + phaseShimmer * 0.1), green * (vColor.g + phaseShimmer * 0.16), blue * (vColor.b + phaseShimmer * 0.24));
     vec3 wakeColor = mix(vec3(0.18, 0.92, 1.0), vec3(0.72, 1.0, 0.96), clamp(vWake * 1.25, 0.0, 1.0));
-    vec3 hotColor = mix(scanColor, wakeColor, clamp(vWave * 0.58 + vSignal * 0.06 + vWake * 0.12, 0.0, 1.0));
+    vec3 hotColor = mix(scanColor, wakeColor, clamp(vWave * 0.28 + vSignal * 0.04 + phaseShimmer * 0.26, 0.0, 1.0));
     float alpha = (core + halo) * vAlpha;
 
     if (alpha < 0.01) {

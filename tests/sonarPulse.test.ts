@@ -22,4 +22,15 @@ describe("sonar pulse", () => {
     updateSonarPulse(sonar, 4);
     expect(sonar.reveal).toBe(0);
   });
+
+  it("moves like a fast low-pressure skim instead of a slow swell", () => {
+    const sonar = createSonarPulse();
+    triggerSonarPulse(sonar);
+    updateSonarPulse(sonar, 0.5);
+
+    expect(sonar.speed).toBeGreaterThanOrEqual(220);
+    expect(sonar.duration).toBeLessThanOrEqual(2.1);
+    expect(sonar.radius).toBeGreaterThan(110);
+    expect(sonar.reveal).toBeLessThan(0.8);
+  });
 });

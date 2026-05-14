@@ -129,10 +129,12 @@ describe("terrain visual line layer", () => {
     const material = mapParticles.material as THREE.ShaderMaterial;
 
     expect(material.uniforms.uPulseWidth.value).toBeGreaterThan(5);
-    expect(material.uniforms.uWakeWidth.value).toBeGreaterThan(material.uniforms.uPulseWidth.value * 3);
+    expect(material.uniforms.uWakeWidth.value).toBeLessThan(58);
     expect(material.uniforms.uWindStrength.value).toBeGreaterThan(1);
+    expect(material.uniforms.uWindStrength.value).toBeLessThan(2.5);
     expect(material.vertexShader).toContain("windPush");
-    expect(material.fragmentShader).toContain("vWake");
+    expect(material.vertexShader).toContain("vPhaseShift");
+    expect(material.fragmentShader).toContain("phaseShimmer");
   });
 
   it("keeps thin contour line opacity stable while particles fade", () => {
