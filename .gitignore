@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.vite/
+.superpowers/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Local recovery/reference material. Keep notes in docs/reference tracked instead.
+references/
+docs/reference/*.png
