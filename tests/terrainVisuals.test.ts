@@ -101,9 +101,27 @@ describe("terrain visual line layer", () => {
       expect(material.uniforms.uSonarRadius.value).toBe(84);
       expect(material.uniforms.uSonarReveal.value).toBeCloseTo(0.72);
       expect(material.uniforms.uTime.value).toBeCloseTo(3.4);
-      expect(material.uniforms.uPassiveRange.value).toBeGreaterThan(60);
+      expect(material.uniforms.uPassiveRange.value).toBeGreaterThan(140);
+      expect(material.uniforms.uFogRange.value).toBeGreaterThan(material.uniforms.uPassiveRange.value);
       expect(material.uniforms.uSonarOrigin.value.x).toBe(8);
       expect(material.uniforms.uSonarOrigin.value.z).toBe(-16);
     }
+  });
+
+  it("keeps thin contour line opacity stable while particles fade", () => {
+    const terrain = new TerrainField({ seed: 21, size: 256, scale: 42, amplitude: 34 });
+    const group = createTerrainVisuals(terrain);
+    const lines = group.getObjectByName("terrain-topographic-lines") as THREE.LineSegments;
+    const material = lines.material as THREE.LineBasicMaterial;
+    const initialOpacity = material.opacity;
+
+    updateTerrainVisuals(group, {
+      playerPosition: { x: 0, y: 12, z: 0 },
+      sonarRadius: 160,
+      sonarReveal: 0.95,
+      time: 8,
+    });
+
+    expect(material.opacity).toBe(initialOpacity);
   });
 });

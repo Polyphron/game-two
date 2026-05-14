@@ -11,7 +11,8 @@ const TERRAIN_HEIGHT_LIFT = 0.65;
 const DOT_JITTER = 0.58;
 const CONTOUR_PARTICLE_SPACING = 1.2;
 const ANOMALY_PARTICLE_COUNT = 720;
-const PASSIVE_SCAN_RANGE = 118;
+const PASSIVE_SCAN_RANGE = 156;
+const PARTICLE_FOG_RANGE = 320;
 const SONAR_RING_SEGMENTS = 180;
 
 function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number, number, number] {
@@ -132,6 +133,7 @@ const particleVertexShader = `
   attribute float aSignalQuality;
 
   uniform float uBaseOpacity;
+  uniform float uFogRange;
   uniform float uPassiveRange;
   uniform float uSonarRadius;
   uniform float uSonarReveal;
@@ -152,8 +154,9 @@ const particleVertexShader = `
     float wake = exp(-pow((distanceFromPulse - max(0.0, uSonarRadius - 38.0)) / 64.0, 2.0)) * uSonarReveal * 0.44;
     float shimmer = 0.5 + 0.5 * sin(distanceFromPulse * 0.16 - uTime * 9.0 + aPhase * 6.28318);
     float nearSignal = 1.0 - smoothstep(uPassiveRange * 0.48, uPassiveRange, distanceFromPulse);
+    float fogSignal = 1.0 - smoothstep(uPassiveRange * 0.75, uFogRange, distanceFromPulse);
     float pingSignal = clamp(waveBand * 1.2 + wake * 1.55, 0.0, 1.0);
-    float sensorSignal = clamp(max(nearSignal, pingSignal), 0.0, 1.0);
+    float sensorSignal = clamp(max(nearSignal, pingSignal) * max(0.16, fogSignal), 0.0, 1.0);
     float dropout = smoothstep(0.08, 0.78, aSignalQuality + sensorSignal * 0.32 + shimmer * 0.18);
     vec2 direction = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, 1.0);
 
@@ -201,6 +204,7 @@ function createParticleMaterial(baseOpacity: number, waveStrength: number): THRE
   return new THREE.ShaderMaterial({
     uniforms: {
       uBaseOpacity: { value: baseOpacity },
+      uFogRange: { value: PARTICLE_FOG_RANGE },
       uPassiveRange: { value: PASSIVE_SCAN_RANGE },
       uSonarOrigin: { value: new THREE.Vector3() },
       uSonarRadius: { value: 0 },
@@ -502,7 +506,7 @@ export function updateTerrainVisuals(group: THREE.Group, update: TerrainVisualUp
   }
 
   if (lines && lines.material instanceof THREE.LineBasicMaterial) {
-    lines.material.opacity = 0.09 + reveal * 0.12 + shimmer * 0.012;
+    lines.visible = true;
   }
 
   if (sonarRing && sonarRing.material instanceof THREE.LineBasicMaterial) {

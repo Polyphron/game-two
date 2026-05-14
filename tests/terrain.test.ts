@@ -95,5 +95,6 @@ describe("TerrainField", () => {
     expect(maxHeight - minHeight).toBeGreaterThan(58);
     expect(minHeight).toBeLessThan(-10);
     expect(maxHeight).toBeGreaterThan(35);
+    expect(terrain.size).toBeGreaterThanOrEqual(768);
   });
 });
