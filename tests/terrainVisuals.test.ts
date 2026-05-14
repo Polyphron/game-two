@@ -88,6 +88,7 @@ describe("terrain visual line layer", () => {
     const group = createTerrainVisuals(terrain);
 
     updateTerrainVisuals(group, {
+      playerYaw: Math.PI / 2,
       playerPosition: { x: 8, y: 12, z: -16 },
       sonarRadius: 84,
       sonarReveal: 0.72,
@@ -103,6 +104,10 @@ describe("terrain visual line layer", () => {
       expect(material.uniforms.uTime.value).toBeCloseTo(3.4);
       expect(material.uniforms.uPassiveRange.value).toBeGreaterThan(140);
       expect(material.uniforms.uFogRange.value).toBeGreaterThan(material.uniforms.uPassiveRange.value);
+      expect(material.uniforms.uBeamRange.value).toBeGreaterThan(material.uniforms.uFogRange.value);
+      expect(material.uniforms.uBeamWidth.value).toBeGreaterThan(0.55);
+      expect(material.uniforms.uSensorForward.value.x).toBeCloseTo(1);
+      expect(material.uniforms.uSensorForward.value.z).toBeCloseTo(0);
       expect(material.uniforms.uSonarOrigin.value.x).toBe(8);
       expect(material.uniforms.uSonarOrigin.value.z).toBe(-16);
     }

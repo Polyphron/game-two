@@ -141,6 +141,7 @@ export class Game {
     updateSonarPulse(this.sonar, deltaSeconds);
     this.updateCamera();
     updateTerrainVisuals(this.terrainVisuals, {
+      playerYaw: this.state.player.yaw,
       playerPosition: this.state.player.position,
       sonarRadius: this.sonar.radius,
       sonarReveal: this.sonar.reveal,

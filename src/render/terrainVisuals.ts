@@ -13,6 +13,8 @@ const CONTOUR_PARTICLE_SPACING = 1.2;
 const ANOMALY_PARTICLE_COUNT = 720;
 const PASSIVE_SCAN_RANGE = 156;
 const PARTICLE_FOG_RANGE = 320;
+const SENSOR_BEAM_RANGE = 470;
+const SENSOR_BEAM_WIDTH = 0.84;
 const SONAR_RING_SEGMENTS = 180;
 
 function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number, number, number] {
@@ -133,12 +135,15 @@ const particleVertexShader = `
   attribute float aSignalQuality;
 
   uniform float uBaseOpacity;
+  uniform float uBeamRange;
+  uniform float uBeamWidth;
   uniform float uFogRange;
   uniform float uPassiveRange;
   uniform float uSonarRadius;
   uniform float uSonarReveal;
   uniform float uTime;
   uniform float uWaveStrength;
+  uniform vec3 uSensorForward;
   uniform vec3 uSonarOrigin;
 
   varying vec3 vColor;
@@ -153,10 +158,16 @@ const particleVertexShader = `
     float waveBand = exp(-pow((distanceFromPulse - uSonarRadius) / 9.5, 2.0)) * uSonarReveal * aSonarGain;
     float wake = exp(-pow((distanceFromPulse - max(0.0, uSonarRadius - 38.0)) / 64.0, 2.0)) * uSonarReveal * 0.44;
     float shimmer = 0.5 + 0.5 * sin(distanceFromPulse * 0.16 - uTime * 9.0 + aPhase * 6.28318);
+    vec2 toParticle = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, -1.0);
+    vec2 beamForward = normalize(uSensorForward.xz);
+    float beamAlignment = dot(toParticle, beamForward);
+    float beamShape = smoothstep(cos(uBeamWidth), 1.0, beamAlignment);
+    float beamDistance = 1.0 - smoothstep(uPassiveRange * 0.72, uBeamRange, distanceFromPulse);
+    float beamSignal = beamShape * beamDistance;
     float nearSignal = 1.0 - smoothstep(uPassiveRange * 0.48, uPassiveRange, distanceFromPulse);
     float fogSignal = 1.0 - smoothstep(uPassiveRange * 0.75, uFogRange, distanceFromPulse);
     float pingSignal = clamp(waveBand * 1.2 + wake * 1.55, 0.0, 1.0);
-    float sensorSignal = clamp(max(nearSignal, pingSignal) * max(0.16, fogSignal), 0.0, 1.0);
+    float sensorSignal = clamp(max(max(nearSignal, beamSignal), pingSignal) * max(0.12, fogSignal), 0.0, 1.0);
     float dropout = smoothstep(0.08, 0.78, aSignalQuality + sensorSignal * 0.32 + shimmer * 0.18);
     vec2 direction = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, 1.0);
 
@@ -204,8 +215,11 @@ function createParticleMaterial(baseOpacity: number, waveStrength: number): THRE
   return new THREE.ShaderMaterial({
     uniforms: {
       uBaseOpacity: { value: baseOpacity },
+      uBeamRange: { value: SENSOR_BEAM_RANGE },
+      uBeamWidth: { value: SENSOR_BEAM_WIDTH },
       uFogRange: { value: PARTICLE_FOG_RANGE },
       uPassiveRange: { value: PASSIVE_SCAN_RANGE },
+      uSensorForward: { value: new THREE.Vector3(0, 0, -1) },
       uSonarOrigin: { value: new THREE.Vector3() },
       uSonarRadius: { value: 0 },
       uSonarReveal: { value: 0 },
@@ -473,6 +487,7 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
 }
 
 export type TerrainVisualUpdate = {
+  playerYaw?: number;
   playerPosition: { x: number; y: number; z: number };
   sonarRadius: number;
   sonarReveal: number;
@@ -487,6 +502,9 @@ export function updateTerrainVisuals(group: THREE.Group, update: TerrainVisualUp
   const sonarRing = group.getObjectByName("terrain-sonar-ground-ring") as THREE.Line | undefined;
   const shimmer = 0.5 + Math.sin(update.time * 2.4) * 0.5;
   const reveal = Math.max(0, Math.min(1, update.sonarReveal));
+  const playerYaw = update.playerYaw ?? 0;
+  const sensorForwardX = Math.sin(playerYaw);
+  const sensorForwardZ = -Math.cos(playerYaw);
 
   for (const points of [contourParticles, mapParticles, anomalyParticles]) {
     if (points && points.material instanceof THREE.ShaderMaterial) {
@@ -495,6 +513,7 @@ export function updateTerrainVisuals(group: THREE.Group, update: TerrainVisualUp
         update.playerPosition.y,
         update.playerPosition.z
       );
+      points.material.uniforms.uSensorForward.value.set(sensorForwardX, 0, sensorForwardZ);
       points.material.uniforms.uSonarRadius.value = update.sonarRadius;
       points.material.uniforms.uSonarReveal.value = reveal;
       points.material.uniforms.uTime.value = update.time;
