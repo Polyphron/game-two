@@ -37,8 +37,8 @@ export interface GameState {
   entities: Map<string, EntityState>;
 }
 
-export function createInitialState(seed = 20260514): GameState {
-  const terrain = new TerrainField({
+export function createInitialState(seed = 20260514, terrain?: TerrainField): GameState {
+  const activeTerrain = terrain ?? new TerrainField({
     seed,
     size: WORLD.terrainSize,
     scale: WORLD.terrainScale,
@@ -48,7 +48,7 @@ export function createInitialState(seed = 20260514): GameState {
   const spawnZ = -WORLD.terrainSize * 0.32;
   const position = {
     x: spawnX,
-    y: terrain.heightAt(spawnX, spawnZ) + WORLD.skimClearance,
+    y: activeTerrain.heightAt(spawnX, spawnZ) + WORLD.skimClearance,
     z: spawnZ
   };
   const player: PlayerState = {
@@ -70,7 +70,7 @@ export function createInitialState(seed = 20260514): GameState {
   return {
     seed,
     time: 0,
-    terrain,
+    terrain: activeTerrain,
     player,
     entities: new Map<string, EntityState>([[player.id, player]])
   };

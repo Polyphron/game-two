@@ -6,6 +6,12 @@ import { createSonarPulse, triggerSonarPulse, updateSonarPulse, type SonarPulse 
 import { RendererApp } from "../render/RendererApp";
 import { createTerrainVisuals, updateTerrainVisuals } from "../render/terrainVisuals";
 import { createWorldVisuals } from "../render/worldVisuals";
+import type { TerrainField } from "../terrain/TerrainField";
+
+export type GameOptions = {
+  seed?: number;
+  terrain?: TerrainField;
+};
 
 export class Game {
   readonly state: GameState;
@@ -23,9 +29,10 @@ export class Game {
   private started = false;
   private previousFrameTime = 0;
 
-  constructor(host: HTMLElement, seed?: number) {
+  constructor(host: HTMLElement, seedOrOptions?: number | GameOptions) {
+    const options = typeof seedOrOptions === "number" ? { seed: seedOrOptions } : seedOrOptions ?? {};
     this.host = host;
-    this.state = createInitialState(seed);
+    this.state = createInitialState(options.seed, options.terrain);
     this.sonar = createSonarPulse();
     this.rendererApp = new RendererApp(host);
     this.resizeHandler = () => this.rendererApp.resize();

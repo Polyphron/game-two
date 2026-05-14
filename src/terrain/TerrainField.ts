@@ -1,4 +1,5 @@
 import { WORLD } from "../game/constants";
+import { type HeightmapData, sampleHeightmap } from "./heightmap";
 import { fbm } from "./noise";
 
 interface TerrainFieldOptions {
@@ -6,6 +7,8 @@ interface TerrainFieldOptions {
   size?: number;
   scale?: number;
   amplitude?: number;
+  heightmap?: HeightmapData;
+  proceduralDetail?: number;
 }
 
 interface Point3 {
@@ -23,15 +26,46 @@ export class TerrainField {
   readonly size: number;
   readonly scale: number;
   readonly amplitude: number;
+  readonly heightmap?: HeightmapData;
+  readonly proceduralDetail: number;
 
   constructor(options: TerrainFieldOptions = {}) {
     this.seed = options.seed ?? 20260514;
     this.size = options.size ?? WORLD.terrainSize;
     this.scale = options.scale ?? WORLD.terrainScale;
     this.amplitude = options.amplitude ?? WORLD.terrainAmplitude;
+    this.heightmap = options.heightmap;
+    this.proceduralDetail = options.proceduralDetail ?? (options.heightmap ? 0.12 : 1);
   }
 
   heightAt(x: number, z: number): number {
+    if (this.heightmap) {
+      return this.heightmapHeightAt(x, z);
+    }
+
+    return this.proceduralHeightAt(x, z);
+  }
+
+  private heightmapHeightAt(x: number, z: number): number {
+    const normalized = sampleHeightmap(this.heightmap!, x, z, this.size);
+    const baseHeight = (normalized - 0.5) * this.amplitude * 2.15;
+
+    if (this.proceduralDetail <= 0) {
+      return baseHeight;
+    }
+
+    const nx = x / this.scale;
+    const nz = z / this.scale;
+    const broadScanError = fbm(nx * 0.5, nz * 0.5, this.seed + 2309, 3) * 0.18;
+    const fineScanError = fbm(nx * 2.6 + 1.4, nz * 2.4 - 3.2, this.seed + 2711, 3) * 0.08;
+    const crackField = fbm(nx * 3.4 - 5.1, nz * 3.1 + 2.8, this.seed + 3109, 3);
+    const faintCracks = -0.11 * Math.exp(-Math.pow(crackField / 0.06, 2));
+    const detail = (broadScanError + fineScanError + faintCracks) * this.amplitude * this.proceduralDetail;
+
+    return baseHeight + detail;
+  }
+
+  private proceduralHeightAt(x: number, z: number): number {
     const nx = x / this.scale;
     const nz = z / this.scale;
     const halfSize = this.size / 2;

@@ -8,7 +8,7 @@ const LINE_CONTOUR_COUNT = 22;
 const PARTICLE_CONTOUR_STEPS = 132;
 const PARTICLE_CONTOUR_COUNT = 72;
 const TERRAIN_HEIGHT_LIFT = 0.65;
-const DOT_JITTER = 1.08;
+const DOT_JITTER = 0.72;
 const CONTOUR_PARTICLE_SPACING = 1.2;
 const ANOMALY_PARTICLE_COUNT = 920;
 const PASSIVE_SCAN_RANGE = 156;
@@ -24,13 +24,13 @@ function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number
   const jitterZ = (hash2(terrain.seed + 19, ix, iz) - 0.5) * cellSize * DOT_JITTER;
   const warpCellX = Math.floor(ix * 0.36);
   const warpCellZ = Math.floor(iz * 0.36);
-  const warpX = (hash2(terrain.seed + 211, warpCellX, warpCellZ) - 0.5) * cellSize * 0.74;
-  const warpZ = (hash2(terrain.seed + 307, warpCellZ, warpCellX) - 0.5) * cellSize * 0.74;
+  const warpX = (hash2(terrain.seed + 211, warpCellX, warpCellZ) - 0.5) * cellSize * 0.34;
+  const warpZ = (hash2(terrain.seed + 307, warpCellZ, warpCellX) - 0.5) * cellSize * 0.34;
   const edgeX = ix === 0 || ix === MAP_PARTICLE_STEPS ? 0 : jitterX + warpX;
   const edgeZ = iz === 0 || iz === MAP_PARTICLE_STEPS ? 0 : jitterZ + warpZ;
   const x = -halfSize + (ix / MAP_PARTICLE_STEPS) * terrain.size + edgeX;
   const z = -halfSize + (iz / MAP_PARTICLE_STEPS) * terrain.size + edgeZ;
-  const liftNoise = (hash2(terrain.seed + 313, ix * 5, iz * 7) - 0.5) * 0.8;
+  const liftNoise = (hash2(terrain.seed + 313, ix * 5, iz * 7) - 0.5) * 0.28;
   const y = terrain.heightAt(x, z) + TERRAIN_HEIGHT_LIFT + liftNoise;
 
   return [x, y, z];
@@ -297,7 +297,7 @@ function buildMapParticleAttributes(terrain: TerrainField): ParticleAttributes {
       const ridgeBreak = Math.abs(hash2(terrain.seed + 857, Math.floor(x * 0.17), Math.floor(z * 0.17)) - 0.5) * 0.42;
       const scatterNoise = hash2(terrain.seed + 991, Math.floor(x * 0.53), Math.floor(z * 0.47));
       const clumpNoise = hash2(terrain.seed + 997, Math.floor(ix / 3), Math.floor(iz / 3));
-      const size = 1.45 + signalNoise * 1.7 + scatterNoise * 1.45 + depthGlow * 0.72 + clumpNoise * 0.42;
+      const size = 1.42 + signalNoise * 1.2 + scatterNoise * 1.0 + depthGlow * 0.6 + clumpNoise * 0.28;
 
       pushParticle(
         attributes,

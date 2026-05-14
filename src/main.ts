@@ -1,5 +1,8 @@
 import "./styles.css";
+import { WORLD } from "./game/constants";
 import { Game } from "./game/Game";
+import { loadHeightmapDataFromImage } from "./terrain/heightmap";
+import { TerrainField } from "./terrain/TerrainField";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -60,9 +63,32 @@ if (!viewport) {
   throw new Error("Missing #viewport mount.");
 }
 
-const game = new Game(viewport);
-game.start();
+async function createMapBackedGame(host: HTMLElement): Promise<Game> {
+  const heightmap = await loadHeightmapDataFromImage("/assets/heightmap_512x512.png");
+  const terrain = new TerrainField({
+    seed: 20260514,
+    size: WORLD.terrainSize,
+    scale: WORLD.terrainScale,
+    amplitude: WORLD.terrainAmplitude,
+    heightmap,
+    proceduralDetail: 0.075,
+  });
+
+  return new Game(host, { terrain });
+}
+
+let game: Game | null = null;
+
+createMapBackedGame(viewport)
+  .catch((error: unknown) => {
+    console.warn("Falling back to procedural terrain because the heightmap could not be loaded.", error);
+    return new Game(viewport);
+  })
+  .then((createdGame) => {
+    game = createdGame;
+    game.start();
+  });
 
 window.addEventListener("beforeunload", () => {
-  game.dispose();
+  game?.dispose();
 });
