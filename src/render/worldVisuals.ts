@@ -52,7 +52,7 @@ export function createWorldVisuals(seed: number): THREE.Group {
     })
   );
   moon.name = "bright-celestial-body";
-  moon.position.set(84, 86, -286);
+  moon.position.set(210, 92, -270);
 
   const halo = new THREE.Mesh(
     new THREE.SphereGeometry(40, 48, 32),

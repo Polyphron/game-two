@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { TerrainField } from "../terrain/TerrainField";
 import { hash2 } from "../terrain/noise";
 
-const MAP_PARTICLE_STEPS = 220;
+const MAP_PARTICLE_STEPS = 256;
 const LINE_CONTOUR_STEPS = 88;
 const LINE_CONTOUR_COUNT = 22;
 const PARTICLE_CONTOUR_STEPS = 132;
@@ -115,6 +115,14 @@ export function buildContourLinePositions(terrain: TerrainField, options: Contou
   return positions;
 }
 
+function offsetLinePositions(positions: number[], xOffset: number): number[] {
+  const offset = [...positions];
+  for (let i = 0; i < offset.length; i += 3) {
+    offset[i] += xOffset;
+  }
+  return offset;
+}
+
 const particleVertexShader = `
   attribute float aPhase;
   attribute float aSize;
@@ -145,7 +153,7 @@ const particleVertexShader = `
 
     vec4 modelViewPosition = modelViewMatrix * vec4(displaced, 1.0);
     gl_Position = projectionMatrix * modelViewPosition;
-    gl_PointSize = clamp(aSize * (1.0 + waveBand * 1.15) * (300.0 / max(80.0, -modelViewPosition.z)), 0.7, 4.0);
+    gl_PointSize = clamp(aSize * (1.0 + waveBand * 1.1) * (420.0 / max(80.0, -modelViewPosition.z)), 1.0, 7.2);
 
     vColor = color;
     vWave = waveBand;
@@ -160,10 +168,14 @@ const particleFragmentShader = `
 
   void main() {
     vec2 centered = gl_PointCoord - vec2(0.5);
-    float radius = length(centered);
-    float core = smoothstep(0.48, 0.12, radius);
-    float halo = smoothstep(0.5, 0.0, radius) * vWave * 0.42;
-    vec3 hotColor = mix(vColor, vec3(0.34, 1.0, 0.9), clamp(vWave * 0.8, 0.0, 1.0));
+    float split = 0.105 + vWave * 0.05;
+    float red = smoothstep(0.44, 0.13, length(centered + vec2(split, 0.0)));
+    float green = smoothstep(0.44, 0.13, length(centered));
+    float blue = smoothstep(0.44, 0.13, length(centered - vec2(split, 0.0)));
+    float core = max(max(red, green), blue);
+    float halo = smoothstep(0.5, 0.0, length(centered)) * (0.18 + vWave * 0.34);
+    vec3 scanColor = vec3(red * (0.34 + vColor.r), green * vColor.g, blue * vColor.b);
+    vec3 hotColor = mix(scanColor, vec3(0.28, 1.0, 0.9), clamp(vWave * 0.45, 0.0, 1.0));
     float alpha = (core + halo) * vAlpha;
 
     if (alpha < 0.01) {
@@ -251,7 +263,7 @@ function buildMapParticleAttributes(terrain: TerrainField): ParticleAttributes {
           0.66 + colorPhase * 0.22 + depthGlow * 0.26
         ],
         signalNoise,
-        1.35 + signalNoise * 1.05,
+        2.05 + signalNoise * 1.55,
         0.72 + depthGlow * 0.45
       );
     }
@@ -293,7 +305,7 @@ function buildContourParticleAttributes(terrain: TerrainField, linePositions: nu
         [x, y, z],
         [0.02 + colorPhase * 0.08, 0.66 + colorPhase * 0.24, 0.8 + colorPhase * 0.16],
         colorPhase,
-        1.05 + colorPhase * 0.75,
+        1.55 + colorPhase * 1.15,
         1.1
       );
     }
@@ -313,13 +325,13 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
   });
   const contourParticles = new THREE.Points(
     createParticleGeometry(buildContourParticleAttributes(terrain, contourParticleLines)),
-    createParticleMaterial(0.28, 0.48)
+    createParticleMaterial(0.46, 0.48)
   );
   contourParticles.name = "terrain-contour-particles";
 
   const mapParticles = new THREE.Points(
     createParticleGeometry(buildMapParticleAttributes(terrain)),
-    createParticleMaterial(0.5, 0.5)
+    createParticleMaterial(0.92, 0.42)
   );
   mapParticles.name = "terrain-map-particles";
 
@@ -330,18 +342,44 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
   });
   const lineGeometry = new THREE.BufferGeometry();
   lineGeometry.setAttribute("position", new THREE.Float32BufferAttribute(linePositions, 3));
+  const redLineGeometry = new THREE.BufferGeometry();
+  redLineGeometry.setAttribute("position", new THREE.Float32BufferAttribute(offsetLinePositions(linePositions, -0.18), 3));
+  const blueLineGeometry = new THREE.BufferGeometry();
+  blueLineGeometry.setAttribute("position", new THREE.Float32BufferAttribute(offsetLinePositions(linePositions, 0.18), 3));
 
   const lines = new THREE.LineSegments(
     lineGeometry,
     new THREE.LineBasicMaterial({
       color: 0x1cf6ff,
       transparent: true,
-      opacity: 0.07,
+      opacity: 0.12,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     })
   );
   lines.name = "terrain-topographic-lines";
+  const redLines = new THREE.LineSegments(
+    redLineGeometry,
+    new THREE.LineBasicMaterial({
+      color: 0xff1b2d,
+      transparent: true,
+      opacity: 0.055,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    })
+  );
+  redLines.name = "terrain-topographic-lines-red";
+  const blueLines = new THREE.LineSegments(
+    blueLineGeometry,
+    new THREE.LineBasicMaterial({
+      color: 0x2458ff,
+      transparent: true,
+      opacity: 0.06,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    })
+  );
+  blueLines.name = "terrain-topographic-lines-blue";
 
   const sonarRingPositions: number[] = [];
   for (let i = 0; i <= SONAR_RING_SEGMENTS; i += 1) {
@@ -362,7 +400,7 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
   );
   sonarRing.name = "terrain-sonar-ground-ring";
 
-  group.add(lines, contourParticles, mapParticles, sonarRing);
+  group.add(redLines, blueLines, lines, contourParticles, mapParticles, sonarRing);
   return group;
 }
 
@@ -395,7 +433,7 @@ export function updateTerrainVisuals(group: THREE.Group, update: TerrainVisualUp
   }
 
   if (lines && lines.material instanceof THREE.LineBasicMaterial) {
-    lines.material.opacity = 0.045 + reveal * 0.11 + shimmer * 0.01;
+    lines.material.opacity = 0.09 + reveal * 0.12 + shimmer * 0.012;
   }
 
   if (sonarRing && sonarRing.material instanceof THREE.LineBasicMaterial) {
