@@ -38,8 +38,35 @@ describe("TerrainField", () => {
 
   it("detects terrain occlusion between two low points across a ridge", () => {
     const terrain = new TerrainField({ seed: 7, size: 256, scale: 36, amplitude: 24 });
-    const a = { x: -84, y: terrain.heightAt(-84, 0) + 1.1, z: 0 };
-    const b = { x: 84, y: terrain.heightAt(84, 0) + 1.1, z: 0 };
+    let ridgeCrossing: { leftX: number; rightX: number; z: number } | null = null;
+
+    for (let z = -96; z <= 96 && !ridgeCrossing; z += 16) {
+      for (let leftX = -116; leftX <= 52; leftX += 8) {
+        const midX = leftX + 32;
+        const rightX = leftX + 64;
+        const leftHeight = terrain.heightAt(leftX, z);
+        const midHeight = terrain.heightAt(midX, z);
+        const rightHeight = terrain.heightAt(rightX, z);
+
+        if (midHeight > leftHeight + 8 && midHeight > rightHeight + 8) {
+          ridgeCrossing = { leftX, rightX, z };
+          break;
+        }
+      }
+    }
+
+    expect(ridgeCrossing).not.toBeNull();
+
+    const a = {
+      x: ridgeCrossing!.leftX,
+      y: terrain.heightAt(ridgeCrossing!.leftX, ridgeCrossing!.z) + 1.1,
+      z: ridgeCrossing!.z
+    };
+    const b = {
+      x: ridgeCrossing!.rightX,
+      y: terrain.heightAt(ridgeCrossing!.rightX, ridgeCrossing!.z) + 1.1,
+      z: ridgeCrossing!.z
+    };
 
     expect(terrain.hasTerrainOcclusion(a, b)).toBe(true);
   });
@@ -50,5 +77,23 @@ describe("TerrainField", () => {
     const exposedY = terrain.localRidgeHeight(-70, 0, 36) + 16;
 
     expect(terrain.coverAt(-70, 0, tuckedY)).toBeGreaterThan(terrain.coverAt(-70, 0, exposedY));
+  });
+
+  it("creates a dramatic default topology with deep valleys and high ridges", () => {
+    const terrain = new TerrainField({ seed: 20260514 });
+    let minHeight = Infinity;
+    let maxHeight = -Infinity;
+
+    for (let z = -220; z <= 220; z += 20) {
+      for (let x = -220; x <= 220; x += 20) {
+        const height = terrain.heightAt(x, z);
+        minHeight = Math.min(minHeight, height);
+        maxHeight = Math.max(maxHeight, height);
+      }
+    }
+
+    expect(maxHeight - minHeight).toBeGreaterThan(58);
+    expect(minHeight).toBeLessThan(-10);
+    expect(maxHeight).toBeGreaterThan(35);
   });
 });

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildContourLinePositions } from "../src/render/terrainVisuals";
+import * as THREE from "three";
+import {
+  buildContourLinePositions,
+  createTerrainVisuals,
+  updateTerrainVisuals,
+} from "../src/render/terrainVisuals";
 import { TerrainField } from "../src/terrain/TerrainField";
 
 describe("terrain visual line layer", () => {
@@ -34,5 +39,49 @@ describe("terrain visual line layer", () => {
 
     expect(contourHeights.size).toBeLessThanOrEqual(10);
     expect(diagonalSegments).toBeGreaterThan(positions.length / 6 / 4);
+  });
+
+  it("uses dense shader particles as the dominant terrain layer", () => {
+    const terrain = new TerrainField({ seed: 21, size: 512, scale: 42, amplitude: 34 });
+    const group = createTerrainVisuals(terrain);
+    const contourParticles = group.getObjectByName("terrain-contour-particles") as THREE.Points;
+    const mapParticles = group.getObjectByName("terrain-map-particles") as THREE.Points;
+    const thinLines = group.getObjectByName("terrain-topographic-lines") as THREE.LineSegments;
+
+    expect(contourParticles).toBeInstanceOf(THREE.Points);
+    expect(mapParticles).toBeInstanceOf(THREE.Points);
+    expect(thinLines).toBeInstanceOf(THREE.LineSegments);
+    expect(contourParticles.material).toBeInstanceOf(THREE.ShaderMaterial);
+    expect(mapParticles.material).toBeInstanceOf(THREE.ShaderMaterial);
+
+    const contourPointCount = contourParticles.geometry.getAttribute("position").count;
+    const mapPointCount = mapParticles.geometry.getAttribute("position").count;
+    const lineVertexCount = thinLines.geometry.getAttribute("position").count;
+
+    expect(contourPointCount + mapPointCount).toBeGreaterThan(lineVertexCount * 3);
+    expect(mapPointCount).toBeGreaterThan(25_000);
+  });
+
+  it("updates sonar uniforms on both particle layers", () => {
+    const terrain = new TerrainField({ seed: 21, size: 256, scale: 42, amplitude: 34 });
+    const group = createTerrainVisuals(terrain);
+
+    updateTerrainVisuals(group, {
+      playerPosition: { x: 8, y: 12, z: -16 },
+      sonarRadius: 84,
+      sonarReveal: 0.72,
+      time: 3.4,
+    });
+
+    for (const name of ["terrain-contour-particles", "terrain-map-particles"]) {
+      const points = group.getObjectByName(name) as THREE.Points;
+      const material = points.material as THREE.ShaderMaterial;
+
+      expect(material.uniforms.uSonarRadius.value).toBe(84);
+      expect(material.uniforms.uSonarReveal.value).toBeCloseTo(0.72);
+      expect(material.uniforms.uTime.value).toBeCloseTo(3.4);
+      expect(material.uniforms.uSonarOrigin.value.x).toBe(8);
+      expect(material.uniforms.uSonarOrigin.value.z).toBe(-16);
+    }
   });
 });

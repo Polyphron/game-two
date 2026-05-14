@@ -1,7 +1,7 @@
 export const WORLD = {
   terrainSize: 512,
   terrainScale: 42,
-  terrainAmplitude: 20,
+  terrainAmplitude: 36,
   safeClearance: 1.8,
   skimClearance: 4.2
 } as const;

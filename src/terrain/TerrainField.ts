@@ -38,14 +38,41 @@ export class TerrainField {
     const edgeX = Math.abs(x) / halfSize;
     const edgeZ = Math.abs(z) / halfSize;
 
-    const centerRidge = Math.exp(-Math.pow(x / (this.scale * 1.25), 2)) * 0.9;
-    const sideChannels = -0.5 * Math.exp(-Math.pow((Math.abs(x) - this.scale * 2) / (this.scale * 0.8), 2));
-    const valleyRun = -0.22 * Math.exp(-Math.pow(z / (this.scale * 3.2), 2));
+    const meanderX = Math.sin(nz * 0.72 + fbm(nx * 0.18, nz * 0.18, this.seed + 301, 3) * 1.4) * this.scale * 1.25;
+    const trenchCenter = x - meanderX;
+    const centralTrench = -0.96 * Math.exp(-Math.pow(trenchCenter / (this.scale * 0.82), 2));
+    const shoulderRidges = 0.58 * Math.exp(-Math.pow((Math.abs(trenchCenter) - this.scale * 1.85) / (this.scale * 0.62), 2));
+    const farRidges = 0.28 * Math.exp(-Math.pow((Math.abs(x) - this.scale * 3.55) / (this.scale * 1.1), 2));
+    const basinA =
+      -0.46 *
+      Math.exp(
+        -(
+          Math.pow((x + this.scale * 1.55) / (this.scale * 2.25), 2) +
+          Math.pow((z - this.scale * 1.15) / (this.scale * 1.65), 2)
+        )
+      );
+    const basinB =
+      -0.34 *
+      Math.exp(
+        -(
+          Math.pow((x - this.scale * 1.05) / (this.scale * 1.85), 2) +
+          Math.pow((z + this.scale * 2.0) / (this.scale * 2.3), 2)
+        )
+      );
     const edgeLift = Math.pow(Math.max(edgeX, edgeZ), 2) * 0.26;
     const broadNoise = fbm(nx * 0.55, nz * 0.55, this.seed, 4) * 0.26;
-    const brokenRidges = Math.abs(fbm(nx * 1.1 + 9.7, nz * 1.1 - 3.4, this.seed + 17, 3)) * 0.18;
+    const brokenRidges = Math.abs(fbm(nx * 1.1 + 9.7, nz * 1.1 - 3.4, this.seed + 17, 3)) * 0.24;
 
-    return (centerRidge + sideChannels + valleyRun + edgeLift + broadNoise + brokenRidges) * this.amplitude;
+    return (
+      centralTrench +
+      shoulderRidges +
+      farRidges +
+      basinA +
+      basinB +
+      edgeLift +
+      broadNoise +
+      brokenRidges
+    ) * this.amplitude;
   }
 
   coverAt(x: number, z: number, y: number): number {

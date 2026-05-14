@@ -2,21 +2,25 @@ import * as THREE from "three";
 import type { TerrainField } from "../terrain/TerrainField";
 import { hash2 } from "../terrain/noise";
 
-const TERRAIN_GRID_STEPS = 96;
+const MAP_PARTICLE_STEPS = 220;
+const LINE_CONTOUR_STEPS = 88;
+const LINE_CONTOUR_COUNT = 22;
+const PARTICLE_CONTOUR_STEPS = 132;
+const PARTICLE_CONTOUR_COUNT = 72;
 const TERRAIN_HEIGHT_LIFT = 0.65;
-const CONTOUR_COUNT = 52;
-const DOT_JITTER = 0.32;
+const DOT_JITTER = 0.58;
+const CONTOUR_PARTICLE_SPACING = 1.2;
 const SONAR_RING_SEGMENTS = 180;
 
 function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number, number, number] {
   const halfSize = terrain.size / 2;
-  const cellSize = terrain.size / TERRAIN_GRID_STEPS;
+  const cellSize = terrain.size / MAP_PARTICLE_STEPS;
   const jitterX = (hash2(terrain.seed, ix, iz) - 0.5) * cellSize * DOT_JITTER;
   const jitterZ = (hash2(terrain.seed + 19, ix, iz) - 0.5) * cellSize * DOT_JITTER;
-  const edgeX = ix === 0 || ix === TERRAIN_GRID_STEPS ? 0 : jitterX;
-  const edgeZ = iz === 0 || iz === TERRAIN_GRID_STEPS ? 0 : jitterZ;
-  const x = -halfSize + (ix / TERRAIN_GRID_STEPS) * terrain.size + edgeX;
-  const z = -halfSize + (iz / TERRAIN_GRID_STEPS) * terrain.size + edgeZ;
+  const edgeX = ix === 0 || ix === MAP_PARTICLE_STEPS ? 0 : jitterX;
+  const edgeZ = iz === 0 || iz === MAP_PARTICLE_STEPS ? 0 : jitterZ;
+  const x = -halfSize + (ix / MAP_PARTICLE_STEPS) * terrain.size + edgeX;
+  const z = -halfSize + (iz / MAP_PARTICLE_STEPS) * terrain.size + edgeZ;
   const y = terrain.heightAt(x, z) + TERRAIN_HEIGHT_LIFT;
 
   return [x, y, z];
@@ -111,45 +115,218 @@ export function buildContourLinePositions(terrain: TerrainField, options: Contou
   return positions;
 }
 
+const particleVertexShader = `
+  attribute float aPhase;
+  attribute float aSize;
+  attribute float aSonarGain;
+
+  uniform float uBaseOpacity;
+  uniform float uSonarRadius;
+  uniform float uSonarReveal;
+  uniform float uTime;
+  uniform float uWaveStrength;
+  uniform vec3 uSonarOrigin;
+
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vWave;
+
+  void main() {
+    vec3 displaced = position;
+    vec2 delta = position.xz - uSonarOrigin.xz;
+    float distanceFromPulse = length(delta);
+    float waveBand = exp(-pow((distanceFromPulse - uSonarRadius) / 9.5, 2.0)) * uSonarReveal * aSonarGain;
+    float wake = exp(-pow((distanceFromPulse - max(0.0, uSonarRadius - 22.0)) / 38.0, 2.0)) * uSonarReveal * 0.18;
+    float shimmer = 0.5 + 0.5 * sin(distanceFromPulse * 0.16 - uTime * 9.0 + aPhase * 6.28318);
+    vec2 direction = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, 1.0);
+
+    displaced.y += waveBand * (3.2 + shimmer * 2.6);
+    displaced.xz += direction * waveBand * 0.75;
+
+    vec4 modelViewPosition = modelViewMatrix * vec4(displaced, 1.0);
+    gl_Position = projectionMatrix * modelViewPosition;
+    gl_PointSize = clamp(aSize * (1.0 + waveBand * 1.15) * (300.0 / max(80.0, -modelViewPosition.z)), 0.7, 4.0);
+
+    vColor = color;
+    vWave = waveBand;
+    vAlpha = clamp(uBaseOpacity + waveBand * uWaveStrength + wake + shimmer * 0.045, 0.0, 1.0);
+  }
+`;
+
+const particleFragmentShader = `
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vWave;
+
+  void main() {
+    vec2 centered = gl_PointCoord - vec2(0.5);
+    float radius = length(centered);
+    float core = smoothstep(0.48, 0.12, radius);
+    float halo = smoothstep(0.5, 0.0, radius) * vWave * 0.42;
+    vec3 hotColor = mix(vColor, vec3(0.34, 1.0, 0.9), clamp(vWave * 0.8, 0.0, 1.0));
+    float alpha = (core + halo) * vAlpha;
+
+    if (alpha < 0.01) {
+      discard;
+    }
+
+    gl_FragColor = vec4(hotColor, alpha);
+  }
+`;
+
+function createParticleMaterial(baseOpacity: number, waveStrength: number): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uBaseOpacity: { value: baseOpacity },
+      uSonarOrigin: { value: new THREE.Vector3() },
+      uSonarRadius: { value: 0 },
+      uSonarReveal: { value: 0 },
+      uTime: { value: 0 },
+      uWaveStrength: { value: waveStrength }
+    },
+    vertexShader: particleVertexShader,
+    fragmentShader: particleFragmentShader,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexColors: true
+  });
+}
+
+type ParticleAttributes = {
+  colors: number[];
+  phases: number[];
+  positions: number[];
+  sizes: number[];
+  sonarGains: number[];
+};
+
+function pushParticle(
+  attributes: ParticleAttributes,
+  position: [number, number, number],
+  color: [number, number, number],
+  phase: number,
+  size: number,
+  sonarGain: number
+): void {
+  attributes.positions.push(position[0], position[1], position[2]);
+  attributes.colors.push(color[0], color[1], color[2]);
+  attributes.phases.push(phase);
+  attributes.sizes.push(size);
+  attributes.sonarGains.push(sonarGain);
+}
+
+function createParticleGeometry(attributes: ParticleAttributes): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(attributes.positions, 3));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(attributes.colors, 3));
+  geometry.setAttribute("aPhase", new THREE.Float32BufferAttribute(attributes.phases, 1));
+  geometry.setAttribute("aSize", new THREE.Float32BufferAttribute(attributes.sizes, 1));
+  geometry.setAttribute("aSonarGain", new THREE.Float32BufferAttribute(attributes.sonarGains, 1));
+  return geometry;
+}
+
+function buildMapParticleAttributes(terrain: TerrainField): ParticleAttributes {
+  const attributes: ParticleAttributes = {
+    colors: [],
+    phases: [],
+    positions: [],
+    sizes: [],
+    sonarGains: []
+  };
+
+  for (let iz = 0; iz <= MAP_PARTICLE_STEPS; iz += 1) {
+    for (let ix = 0; ix <= MAP_PARTICLE_STEPS; ix += 1) {
+      const [x, y, z] = terrainPosition(terrain, ix, iz);
+      const colorPhase = hash2(terrain.seed + 37, ix, iz);
+      const depthGlow = Math.max(0, Math.min(1, (-y + terrain.amplitude * 0.32) / Math.max(1, terrain.amplitude)));
+      const signalNoise = hash2(terrain.seed + 101, ix, iz);
+
+      pushParticle(
+        attributes,
+        [x, y, z],
+        [
+          0.03 + colorPhase * 0.08 + depthGlow * 0.05,
+          0.56 + colorPhase * 0.24 + depthGlow * 0.22,
+          0.66 + colorPhase * 0.22 + depthGlow * 0.26
+        ],
+        signalNoise,
+        1.35 + signalNoise * 1.05,
+        0.72 + depthGlow * 0.45
+      );
+    }
+  }
+
+  return attributes;
+}
+
+function buildContourParticleAttributes(terrain: TerrainField, linePositions: number[]): ParticleAttributes {
+  const attributes: ParticleAttributes = {
+    colors: [],
+    phases: [],
+    positions: [],
+    sizes: [],
+    sonarGains: []
+  };
+
+  for (let i = 0; i < linePositions.length; i += 6) {
+    const ax = linePositions[i];
+    const ay = linePositions[i + 1] + 0.2;
+    const az = linePositions[i + 2];
+    const bx = linePositions[i + 3];
+    const by = linePositions[i + 4] + 0.2;
+    const bz = linePositions[i + 5];
+    const length = Math.hypot(bx - ax, by - ay, bz - az);
+    const samples = Math.max(2, Math.ceil(length / CONTOUR_PARTICLE_SPACING));
+
+    for (let sample = 0; sample <= samples; sample += 1) {
+      const t = sample / samples;
+      const phaseSeed = Math.floor(i * 0.17 + sample * 13.7);
+      const jitter = hash2(terrain.seed + 251, phaseSeed, sample) - 0.5;
+      const x = ax + (bx - ax) * t + jitter * 0.34;
+      const y = ay + (by - ay) * t + Math.abs(jitter) * 0.18;
+      const z = az + (bz - az) * t + (hash2(terrain.seed + 503, phaseSeed, sample) - 0.5) * 0.34;
+      const colorPhase = hash2(terrain.seed + 401, phaseSeed, sample);
+
+      pushParticle(
+        attributes,
+        [x, y, z],
+        [0.02 + colorPhase * 0.08, 0.66 + colorPhase * 0.24, 0.8 + colorPhase * 0.16],
+        colorPhase,
+        1.05 + colorPhase * 0.75,
+        1.1
+      );
+    }
+  }
+
+  return attributes;
+}
+
 export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
   const group = new THREE.Group();
   group.name = "terrain-two-layer-visuals";
 
-  const pointPositions: number[] = [];
-  const pointColors: number[] = [];
-
-  for (let iz = 0; iz <= TERRAIN_GRID_STEPS; iz += 1) {
-    for (let ix = 0; ix <= TERRAIN_GRID_STEPS; ix += 1) {
-      const [x, y, z] = terrainPosition(terrain, ix, iz);
-      const colorPhase = hash2(terrain.seed + 37, ix, iz);
-      pointPositions.push(x, y, z);
-      pointColors.push(0.1 + colorPhase * 0.18, 0.72 + colorPhase * 0.28, 0.78 + colorPhase * 0.2);
-    }
-  }
-
-  const pointGeometry = new THREE.BufferGeometry();
-  pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(pointPositions, 3));
-  pointGeometry.setAttribute("color", new THREE.Float32BufferAttribute(pointColors, 3));
-
-  const points = new THREE.Points(
-    pointGeometry,
-    new THREE.PointsMaterial({
-      color: 0x67fff0,
-      size: 1.1,
-      sizeAttenuation: false,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.48,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    })
+  const contourParticleLines = buildContourLinePositions(terrain, {
+    contourCount: PARTICLE_CONTOUR_COUNT,
+    lift: TERRAIN_HEIGHT_LIFT,
+    steps: PARTICLE_CONTOUR_STEPS
+  });
+  const contourParticles = new THREE.Points(
+    createParticleGeometry(buildContourParticleAttributes(terrain, contourParticleLines)),
+    createParticleMaterial(0.28, 0.48)
   );
-  points.name = "terrain-particle-dots";
+  contourParticles.name = "terrain-contour-particles";
+
+  const mapParticles = new THREE.Points(
+    createParticleGeometry(buildMapParticleAttributes(terrain)),
+    createParticleMaterial(0.5, 0.5)
+  );
+  mapParticles.name = "terrain-map-particles";
 
   const linePositions = buildContourLinePositions(terrain, {
-    contourCount: CONTOUR_COUNT,
+    contourCount: LINE_CONTOUR_COUNT,
     lift: TERRAIN_HEIGHT_LIFT,
-    steps: TERRAIN_GRID_STEPS
+    steps: LINE_CONTOUR_STEPS
   });
   const lineGeometry = new THREE.BufferGeometry();
   lineGeometry.setAttribute("position", new THREE.Float32BufferAttribute(linePositions, 3));
@@ -157,9 +334,9 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
   const lines = new THREE.LineSegments(
     lineGeometry,
     new THREE.LineBasicMaterial({
-      color: 0x50ff8d,
+      color: 0x1cf6ff,
       transparent: true,
-      opacity: 0.38,
+      opacity: 0.07,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     })
@@ -185,7 +362,7 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
   );
   sonarRing.name = "terrain-sonar-ground-ring";
 
-  group.add(lines, points, sonarRing);
+  group.add(lines, contourParticles, mapParticles, sonarRing);
   return group;
 }
 
@@ -197,19 +374,28 @@ export type TerrainVisualUpdate = {
 };
 
 export function updateTerrainVisuals(group: THREE.Group, update: TerrainVisualUpdate): void {
-  const dots = group.getObjectByName("terrain-particle-dots") as THREE.Points | undefined;
+  const contourParticles = group.getObjectByName("terrain-contour-particles") as THREE.Points | undefined;
+  const mapParticles = group.getObjectByName("terrain-map-particles") as THREE.Points | undefined;
   const lines = group.getObjectByName("terrain-topographic-lines") as THREE.LineSegments | undefined;
   const sonarRing = group.getObjectByName("terrain-sonar-ground-ring") as THREE.Line | undefined;
   const shimmer = 0.5 + Math.sin(update.time * 2.4) * 0.5;
   const reveal = Math.max(0, Math.min(1, update.sonarReveal));
 
-  if (dots && dots.material instanceof THREE.PointsMaterial) {
-    dots.material.opacity = 0.34 + reveal * 0.44 + shimmer * 0.03;
-    dots.material.size = 0.92 + reveal * 0.72;
+  for (const points of [contourParticles, mapParticles]) {
+    if (points && points.material instanceof THREE.ShaderMaterial) {
+      points.material.uniforms.uSonarOrigin.value.set(
+        update.playerPosition.x,
+        update.playerPosition.y,
+        update.playerPosition.z
+      );
+      points.material.uniforms.uSonarRadius.value = update.sonarRadius;
+      points.material.uniforms.uSonarReveal.value = reveal;
+      points.material.uniforms.uTime.value = update.time;
+    }
   }
 
   if (lines && lines.material instanceof THREE.LineBasicMaterial) {
-    lines.material.opacity = 0.2 + reveal * 0.5 + shimmer * 0.025;
+    lines.material.opacity = 0.045 + reveal * 0.11 + shimmer * 0.01;
   }
 
   if (sonarRing && sonarRing.material instanceof THREE.LineBasicMaterial) {
