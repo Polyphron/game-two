@@ -20,8 +20,9 @@ import {
   type WeaponState,
 } from "../combat/weapons";
 import { createInitialState, type GameState } from "./state";
-import { PLAYER, WORLD } from "./constants";
+import { PLAYER } from "./constants";
 import { computeCockpitCamera } from "../flight/cameraRig";
+import { createMouseFlightState, updateMouseFlight, type MouseFlightState } from "../flight/flightControls";
 import { buildStatusModel } from "../hud/statusModel";
 import {
   createRadarState,
@@ -30,6 +31,7 @@ import {
   type RadarContact,
   type RadarState,
 } from "../radar/radarModel";
+import { createTargetLockState, updateTargetLock, type TargetLockState } from "../radar/targetLock";
 import {
   createScanMemory,
   decayScanMemory,
@@ -63,12 +65,18 @@ export class Game {
   private readonly resizeHandler: () => void;
   private readonly keyDownHandler: (event: KeyboardEvent) => void;
   private readonly keyUpHandler: (event: KeyboardEvent) => void;
+  private readonly mouseDownHandler: (event: MouseEvent) => void;
+  private readonly mouseMoveHandler: (event: MouseEvent) => void;
+  private readonly mouseUpHandler: (event: MouseEvent) => void;
+  private readonly contextMenuHandler: (event: MouseEvent) => void;
   private readonly sector: Sector;
   private readonly terrainVisuals: THREE.Group;
   private readonly pressedKeys = new Set<string>();
   private readonly scanMemory: ScanMemory;
   private readonly scanMemoryTexture: THREE.DataTexture;
   private readonly sonar: SonarPulse;
+  private readonly mouseFlight: MouseFlightState;
+  private readonly targetLock: TargetLockState;
   private readonly weaponState: WeaponState;
   private readonly projectileVisuals = new THREE.Group();
   private readonly markerGeometry = new THREE.OctahedronGeometry(2.4, 0);
@@ -79,7 +87,9 @@ export class Game {
   private kills = 0;
   private animationFrame = 0;
   private disposed = false;
+  private mouseAim = { x: 0, y: 0 };
   private pingRequested = false;
+  private rightLockHeld = false;
   private started = false;
   private previousFrameTime = 0;
 
@@ -92,6 +102,8 @@ export class Game {
     this.enemyTargets = createEnemyTargets(this.enemyRuntime);
     this.radar = createRadarState();
     this.sonar = createSonarPulse();
+    this.mouseFlight = createMouseFlightState();
+    this.targetLock = createTargetLockState();
     this.weaponState = createWeaponState();
     this.scanMemory = createScanMemory({ size: this.state.terrain.size });
     this.scanMemoryTexture = new THREE.DataTexture(
@@ -108,6 +120,10 @@ export class Game {
     this.resizeHandler = () => this.rendererApp.resize();
     this.keyDownHandler = (event) => this.handleKeyDown(event);
     this.keyUpHandler = (event) => this.handleKeyUp(event);
+    this.mouseMoveHandler = (event) => this.handleMouseMove(event);
+    this.mouseDownHandler = (event) => this.handleMouseDown(event);
+    this.mouseUpHandler = (event) => this.handleMouseUp(event);
+    this.contextMenuHandler = (event) => event.preventDefault();
     this.terrainVisuals = createTerrainVisuals(this.state.terrain);
     this.enemyVisuals.name = "enemy-scan-markers";
     this.projectileVisuals.name = "weapon-projectile-markers";
@@ -128,6 +144,10 @@ export class Game {
     window.addEventListener("resize", this.resizeHandler);
     window.addEventListener("keydown", this.keyDownHandler);
     window.addEventListener("keyup", this.keyUpHandler);
+    this.host.addEventListener("mousemove", this.mouseMoveHandler);
+    this.host.addEventListener("mousedown", this.mouseDownHandler);
+    window.addEventListener("mouseup", this.mouseUpHandler);
+    this.host.addEventListener("contextmenu", this.contextMenuHandler);
     this.resizeHandler();
     this.animationFrame = window.requestAnimationFrame(this.frame);
   }
@@ -141,6 +161,10 @@ export class Game {
     window.removeEventListener("resize", this.resizeHandler);
     window.removeEventListener("keydown", this.keyDownHandler);
     window.removeEventListener("keyup", this.keyUpHandler);
+    this.host.removeEventListener("mousemove", this.mouseMoveHandler);
+    this.host.removeEventListener("mousedown", this.mouseDownHandler);
+    window.removeEventListener("mouseup", this.mouseUpHandler);
+    this.host.removeEventListener("contextmenu", this.contextMenuHandler);
     window.cancelAnimationFrame(this.animationFrame);
     this.scanMemoryTexture.dispose();
     this.audio.dispose();
@@ -177,35 +201,49 @@ export class Game {
     this.pressedKeys.delete(event.code);
   }
 
+  private handleMouseMove(event: MouseEvent): void {
+    const rect = this.host.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    this.mouseAim = {
+      x: Math.max(-1, Math.min(1, (event.clientX - centerX) / Math.max(1, rect.width * 0.42))),
+      y: Math.max(-1, Math.min(1, (event.clientY - centerY) / Math.max(1, rect.height * 0.42))),
+    };
+  }
+
+  private handleMouseDown(event: MouseEvent): void {
+    if (event.button === 2) {
+      event.preventDefault();
+      this.rightLockHeld = true;
+    }
+  }
+
+  private handleMouseUp(event: MouseEvent): void {
+    if (event.button === 2) {
+      event.preventDefault();
+      this.rightLockHeld = false;
+    }
+  }
+
   private updatePlayer(deltaSeconds: number): void {
-    const player = this.state.player;
     const left = this.pressedKeys.has("ArrowLeft") || this.pressedKeys.has("KeyA");
     const right = this.pressedKeys.has("ArrowRight") || this.pressedKeys.has("KeyD");
-    const throttle = this.pressedKeys.has("KeyW") ? 1.32 : this.pressedKeys.has("KeyS") ? 0.46 : 0.88;
+    const throttle = this.pressedKeys.has("KeyW") ? 1 : this.pressedKeys.has("KeyS") ? 0.08 : 0.62;
     const boosting = this.pressedKeys.has("ShiftLeft") || this.pressedKeys.has("ShiftRight");
-    const turnInput = (right ? 1 : 0) - (left ? 1 : 0);
-    const speed = PLAYER.moveSpeed * throttle * (boosting ? PLAYER.boostSpeedMultiplier : 1);
-    const forwardX = Math.sin(player.yaw);
-    const forwardZ = -Math.cos(player.yaw);
-    const previousX = player.position.x;
-    const previousZ = player.position.z;
+    const strafe = (right ? 1 : 0) - (left ? 1 : 0);
 
-    player.yaw += turnInput * PLAYER.turnRate * deltaSeconds;
-    player.position.x += forwardX * speed * deltaSeconds;
-    player.position.z += forwardZ * speed * deltaSeconds;
+    updateMouseFlight(this.state.player, this.mouseFlight, this.state.terrain, {
+      aimX: this.mouseAim.x,
+      aimY: this.mouseAim.y,
+      boost: boosting,
+      deltaSeconds,
+      strafe,
+      throttle,
+    });
     this.wrapPlayerToTerrain();
-
-    const groundHeight = this.state.terrain.heightAt(player.position.x, player.position.z);
-    const targetY = groundHeight + WORLD.skimClearance;
-    const skimBlend = Math.min(1, deltaSeconds * 5.8);
-    player.position.y += (targetY - player.position.y) * skimBlend;
-    player.velocity.x = (player.position.x - previousX) / Math.max(deltaSeconds, 0.0001);
-    player.velocity.y = 0;
-    player.velocity.z = (player.position.z - previousZ) / Math.max(deltaSeconds, 0.0001);
-    player.boost = Math.max(0, Math.min(PLAYER.boostMax, player.boost + (boosting ? -24 : 18) * deltaSeconds));
-    const cover = this.state.terrain.coverAt(player.position.x, player.position.z, player.position.y);
-    player.exposure = Math.max(0, Math.min(1, this.sonar.reveal * 0.55 + (boosting ? 0.2 : 0) + (1 - cover) * 0.28));
-    player.signature = Math.max(player.signature, player.exposure * 0.72);
+    if (this.rightLockHeld) {
+      this.state.player.signature = Math.max(this.state.player.signature, 0.42);
+    }
   }
 
   private wrapPlayerToTerrain(): void {
@@ -244,7 +282,12 @@ export class Game {
     this.host.style.setProperty("--ship-heat", (this.state.player.heat / PLAYER.heatMax).toFixed(3));
     this.host.style.setProperty("--shield", (this.state.player.shield / PLAYER.shieldMax).toFixed(3));
     setText(this.host.querySelector(".activity-feed strong"), `${status.threatLabel} // ${status.contactText} // ${status.sectorText}`);
-    setText(this.host.querySelector(".score-panel .session-live"), `${threat.activeClusters} SWARMS ACTIVE // ${status.missileText}`);
+    setText(
+      this.host.querySelector(".score-panel .session-live"),
+      `${threat.activeClusters} SWARMS ACTIVE // ${status.missileText} // ${this.targetLock.status.toUpperCase()} ${Math.round(
+        this.targetLock.quality * 100
+      )}%`
+    );
     const stats = this.host.querySelectorAll(".left-stats span");
     setText(stats[0], `KILLS ${this.kills}`);
     setText(stats[1], `CRED ${this.state.player.credits}`);
@@ -340,14 +383,14 @@ export class Game {
   }
 
   private fireMissile(): void {
-    const activeContacts = this.activeRadarContacts();
-    const strongest = getStrongestContact({ contacts: new Map(activeContacts.map((contact) => [contact.clusterId, contact])) });
-    const target = strongest ? this.findTargetForCluster(strongest.clusterId) : undefined;
+    const target = this.targetLock.targetClusterId && this.targetLock.status === "locked"
+      ? this.findTargetForCluster(this.targetLock.targetClusterId)
+      : undefined;
     if (!target) {
       return;
     }
 
-    const result = tryFireMissile(this.weaponState, this.state.player, strongest?.confidence ?? 0, target);
+    const result = tryFireMissile(this.weaponState, this.state.player, this.targetLock.quality, target);
     if (result.ok) {
       this.audio.trigger("missile");
       this.markClusterAlert(target.clusterId, "confirmed");
@@ -486,6 +529,11 @@ export class Game {
       deltaSeconds,
       ping: this.pingRequested,
       playerSignature: Math.max(this.state.player.signature, this.state.player.exposure),
+    });
+    updateTargetLock(this.targetLock, {
+      contacts: [...this.radar.contacts.values()],
+      deltaSeconds,
+      requesting: this.rightLockHeld,
     });
     updateEnemyRuntime(this.enemyRuntime, {
       player: this.state.player,

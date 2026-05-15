@@ -15,6 +15,7 @@ export const WEAPON_RULES = {
     lockThreshold: 0.7,
     reloadSeconds: 12,
     speed: 80,
+    homingTurnPerSecond: 4.8,
     damage: 80,
     hitRadius: 7,
     lifetimeSeconds: 6,
@@ -227,6 +228,7 @@ export function updateProjectiles(
   const activeProjectiles: ProjectileState[] = [];
 
   for (const projectile of state.projectiles) {
+    updateProjectileGuidance(projectile, targets, delta);
     const stepDistance = projectile.speed * delta;
     projectile.position = {
       x: projectile.position.x + projectile.direction.x * stepDistance,
@@ -278,6 +280,32 @@ export function updateProjectiles(
 
   state.projectiles = activeProjectiles;
   return events;
+}
+
+function updateProjectileGuidance(projectile: ProjectileState, targets: CombatTarget[], deltaSeconds: number): void {
+  if (!projectile.targetId) {
+    return;
+  }
+
+  const target = targets.find((candidate) => candidate.id === projectile.targetId && isTargetActive(candidate));
+  if (!target) {
+    return;
+  }
+
+  const desiredDirection = directionToTarget(projectile.position, target.position);
+  const blend = Math.min(1, WEAPON_RULES.missile.homingTurnPerSecond * deltaSeconds);
+  const nextDirection = {
+    x: projectile.direction.x + (desiredDirection.x - projectile.direction.x) * blend,
+    y: 0,
+    z: projectile.direction.z + (desiredDirection.z - projectile.direction.z) * blend,
+  };
+  const length = Math.max(0.0001, Math.hypot(nextDirection.x, nextDirection.z));
+
+  projectile.direction = {
+    x: nextDirection.x / length,
+    y: 0,
+    z: nextDirection.z / length,
+  };
 }
 
 function findLaserTarget(shooter: WeaponActor, targets: CombatTarget[]): CombatTarget | undefined {

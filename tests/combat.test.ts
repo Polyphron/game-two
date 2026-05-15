@@ -138,4 +138,19 @@ describe("combat weapon rules", () => {
     expect(target.active).toBe(false);
     expect(events.some((event) => event.type === "target-killed" && event.targetId === "flank-target")).toBe(true);
   });
+
+  it("homes locked missiles toward a target that changes course", () => {
+    const weapons = createWeaponState();
+    const shooter = createShooter({ yaw: 0 });
+    const target = createTarget("dodging-target", { x: 0, y: 8, z: -140 }, WEAPON_RULES.missile.damage);
+
+    const fired = tryFireMissile(weapons, shooter, 1, target);
+    expect(fired.ok).toBe(true);
+
+    updateProjectiles(weapons, [target], 0.35);
+    target.position.x = 52;
+    updateProjectiles(weapons, [target], 0.35);
+
+    expect(weapons.projectiles[0]?.direction.x).toBeGreaterThan(0.15);
+  });
 });
