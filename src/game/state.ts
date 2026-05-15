@@ -7,7 +7,7 @@ export interface Vec3 {
   z: number;
 }
 
-export type EntityKind = "player" | "drone" | "sensor" | "salvage";
+export type EntityKind = "player" | "drone" | "sensor" | "salvage" | "scout" | "gunship" | "laser" | "missile";
 
 export interface EntityState {
   id: string;

@@ -3,7 +3,15 @@ import type { TerrainField } from "./TerrainField";
 import { hash2 } from "./noise";
 
 export type EnemyRole = "scout" | "gunship";
-export type EnemyAlertState = "idle" | "searching" | "engaged";
+export type EnemyAlertState =
+  | "idle"
+  | "suspicious"
+  | "investigating"
+  | "confirmed"
+  | "attacking"
+  | "searching"
+  | "cooling"
+  | "engaged";
 
 export interface EnemyCluster {
   id: string;

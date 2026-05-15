@@ -187,7 +187,7 @@ body,
 }
 
 .left-stats span::after {
-  content: "0";
+  content: "";
 }
 
 .reticle {
