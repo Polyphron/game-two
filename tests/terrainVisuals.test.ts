@@ -95,10 +95,13 @@ describe("terrain visual line layer", () => {
   it("updates sonar uniforms on both particle layers", () => {
     const terrain = new TerrainField({ seed: 21, size: 256, scale: 42, amplitude: 34 });
     const group = createTerrainVisuals(terrain);
+    const scanMemoryTexture = new THREE.DataTexture(new Uint8Array([32, 192, 192, 32]), 2, 2, THREE.RedFormat);
 
     updateTerrainVisuals(group, {
       playerYaw: Math.PI / 2,
       playerPosition: { x: 8, y: 12, z: -16 },
+      scanMemorySize: terrain.size,
+      scanMemoryTexture,
       sonarRadius: 84,
       sonarReveal: 0.72,
       time: 3.4,
@@ -115,6 +118,8 @@ describe("terrain visual line layer", () => {
       expect(material.uniforms.uFogRange.value).toBeGreaterThan(material.uniforms.uPassiveRange.value);
       expect(material.uniforms.uBeamRange.value).toBeGreaterThan(material.uniforms.uFogRange.value);
       expect(material.uniforms.uBeamWidth.value).toBeGreaterThan(0.55);
+      expect(material.uniforms.uScanMemory.value).toBe(scanMemoryTexture);
+      expect(material.uniforms.uScanMemorySize.value).toBe(terrain.size);
       expect(material.uniforms.uSensorForward.value.x).toBeCloseTo(1);
       expect(material.uniforms.uSensorForward.value.z).toBeCloseTo(0);
       expect(material.uniforms.uSonarOrigin.value.x).toBe(8);
@@ -132,6 +137,7 @@ describe("terrain visual line layer", () => {
     expect(material.uniforms.uWakeWidth.value).toBeLessThan(58);
     expect(material.uniforms.uWindStrength.value).toBeGreaterThan(1);
     expect(material.uniforms.uWindStrength.value).toBeLessThan(2.5);
+    expect(material.vertexShader).toContain("scanMemory");
     expect(material.vertexShader).toContain("windPush");
     expect(material.vertexShader).toContain("vPhaseShift");
     expect(material.fragmentShader).toContain("phaseShimmer");

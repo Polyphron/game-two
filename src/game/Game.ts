@@ -2,6 +2,13 @@ import * as THREE from "three";
 import { createInitialState, type GameState } from "./state";
 import { PLAYER, WORLD } from "./constants";
 import { computeCockpitCamera } from "../flight/cameraRig";
+import {
+  createScanMemory,
+  decayScanMemory,
+  revealScanMemoryArea,
+  revealScanMemoryWave,
+  type ScanMemory,
+} from "../radar/scanMemory";
 import { createSonarPulse, triggerSonarPulse, updateSonarPulse, type SonarPulse } from "../radar/sonarPulse";
 import { RendererApp } from "../render/RendererApp";
 import { createTerrainVisuals, updateTerrainVisuals } from "../render/terrainVisuals";
@@ -23,6 +30,8 @@ export class Game {
   private readonly keyUpHandler: (event: KeyboardEvent) => void;
   private readonly terrainVisuals: THREE.Group;
   private readonly pressedKeys = new Set<string>();
+  private readonly scanMemory: ScanMemory;
+  private readonly scanMemoryTexture: THREE.DataTexture;
   private readonly sonar: SonarPulse;
   private animationFrame = 0;
   private disposed = false;
@@ -34,6 +43,17 @@ export class Game {
     this.host = host;
     this.state = createInitialState(options.seed, options.terrain);
     this.sonar = createSonarPulse();
+    this.scanMemory = createScanMemory({ size: this.state.terrain.size });
+    this.scanMemoryTexture = new THREE.DataTexture(
+      this.scanMemory.values,
+      this.scanMemory.resolution,
+      this.scanMemory.resolution,
+      THREE.RedFormat
+    );
+    this.scanMemoryTexture.magFilter = THREE.LinearFilter;
+    this.scanMemoryTexture.minFilter = THREE.LinearFilter;
+    this.scanMemoryTexture.unpackAlignment = 1;
+    this.scanMemoryTexture.needsUpdate = true;
     this.rendererApp = new RendererApp(host);
     this.resizeHandler = () => this.rendererApp.resize();
     this.keyDownHandler = (event) => this.handleKeyDown(event);
@@ -67,6 +87,7 @@ export class Game {
     window.removeEventListener("keydown", this.keyDownHandler);
     window.removeEventListener("keyup", this.keyUpHandler);
     window.cancelAnimationFrame(this.animationFrame);
+    this.scanMemoryTexture.dispose();
     this.rendererApp.dispose();
   }
 
@@ -146,10 +167,30 @@ export class Game {
     this.state.time += deltaSeconds;
     this.updatePlayer(deltaSeconds);
     updateSonarPulse(this.sonar, deltaSeconds);
+    decayScanMemory(this.scanMemory, deltaSeconds);
+    revealScanMemoryArea(this.scanMemory, {
+      origin: this.state.player.position,
+      radius: 42,
+      strength: 0.18,
+    });
+    if (this.sonar.reveal > 0) {
+      revealScanMemoryWave(this.scanMemory, {
+        origin: this.state.player.position,
+        radius: this.sonar.radius,
+        reveal: this.sonar.reveal,
+        width: 22,
+      });
+    }
+    if (this.scanMemory.dirty) {
+      this.scanMemoryTexture.needsUpdate = true;
+      this.scanMemory.dirty = false;
+    }
     this.updateCamera();
     updateTerrainVisuals(this.terrainVisuals, {
       playerYaw: this.state.player.yaw,
       playerPosition: this.state.player.position,
+      scanMemorySize: this.state.terrain.size,
+      scanMemoryTexture: this.scanMemoryTexture,
       sonarRadius: this.sonar.radius,
       sonarReveal: this.sonar.reveal,
       time: this.state.time

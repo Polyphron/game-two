@@ -20,6 +20,8 @@ const SONAR_WAKE_WIDTH = 46;
 const SONAR_WAKE_OFFSET = 24;
 const SONAR_WIND_STRENGTH = 1.65;
 const SONAR_RING_SEGMENTS = 180;
+const defaultScanMemory = new THREE.DataTexture(new Uint8Array([14]), 1, 1, THREE.RedFormat);
+defaultScanMemory.needsUpdate = true;
 
 function terrainPosition(terrain: TerrainField, ix: number, iz: number): [number, number, number] {
   const halfSize = terrain.size / 2;
@@ -149,6 +151,7 @@ const particleVertexShader = `
   uniform float uFogRange;
   uniform float uPassiveRange;
   uniform float uPulseWidth;
+  uniform float uScanMemorySize;
   uniform float uSonarRadius;
   uniform float uSonarReveal;
   uniform float uTime;
@@ -156,6 +159,7 @@ const particleVertexShader = `
   uniform float uWakeWidth;
   uniform float uWaveStrength;
   uniform float uWindStrength;
+  uniform sampler2D uScanMemory;
   uniform vec3 uSensorForward;
   uniform vec3 uSonarOrigin;
 
@@ -184,10 +188,14 @@ const particleVertexShader = `
     float beamShape = smoothstep(cos(uBeamWidth), 1.0, beamAlignment);
     float beamDistance = 1.0 - smoothstep(uPassiveRange * 0.72, uBeamRange, distanceFromPulse);
     float beamSignal = beamShape * beamDistance;
-    float nearSignal = 1.0 - smoothstep(uPassiveRange * 0.48, uPassiveRange, distanceFromPulse);
+    vec2 memoryUv = clamp(position.xz / uScanMemorySize + vec2(0.5), vec2(0.0), vec2(1.0));
+    float scanMemory = texture2D(uScanMemory, memoryUv).r;
+    float memorySignal = smoothstep(0.055, 0.82, scanMemory);
+    float nearSignal = (1.0 - smoothstep(uPassiveRange * 0.32, uPassiveRange * 0.78, distanceFromPulse)) * 0.32;
     float fogSignal = 1.0 - smoothstep(uPassiveRange * 0.75, uFogRange, distanceFromPulse);
     float pingSignal = clamp(leadingEdge * 1.34 + wake * 1.62, 0.0, 1.0);
-    float sensorSignal = clamp(max(max(nearSignal, beamSignal), pingSignal) * max(0.12, fogSignal), 0.0, 1.0);
+    float sensorSignal = clamp(max(max(memorySignal, nearSignal + beamSignal * 0.22), pingSignal) * max(0.12, fogSignal), 0.0, 1.0);
+    float detailSignal = clamp(scanMemory * 1.18 + pingSignal * 0.35, 0.0, 1.0);
     float dropout = smoothstep(0.08, 0.78, aSignalQuality + sensorSignal * 0.32 + shimmer * 0.18);
     vec2 direction = distanceFromPulse > 0.001 ? normalize(delta) : vec2(0.0, 1.0);
 
@@ -197,14 +205,14 @@ const particleVertexShader = `
 
     vec4 modelViewPosition = modelViewMatrix * vec4(displaced, 1.0);
     gl_Position = projectionMatrix * modelViewPosition;
-    gl_PointSize = clamp(aSize * (1.0 + waveBand * 1.24 + sensorSignal * 0.18) * (430.0 / max(80.0, -modelViewPosition.z)), 1.0, 8.4);
+    gl_PointSize = clamp(aSize * (0.52 + detailSignal * 0.68 + waveBand * 0.56 + sensorSignal * 0.12) * (430.0 / max(80.0, -modelViewPosition.z)), 0.75, 8.4);
 
     vColor = color;
     vPhaseShift = phaseGust;
     vSignal = sensorSignal;
     vWake = wake;
     vWave = waveBand;
-    vAlpha = clamp((uBaseOpacity * sensorSignal + leadingEdge * uWaveStrength * 0.72 + wake * 0.38 + phaseGust * 0.16 + shimmer * 0.04) * dropout, 0.0, 1.0);
+    vAlpha = clamp((uBaseOpacity * sensorSignal * (0.34 + detailSignal * 0.82) + leadingEdge * uWaveStrength * 0.72 + wake * 0.38 + phaseGust * 0.16 + shimmer * 0.035) * dropout, 0.0, 1.0);
   }
 `;
 
@@ -247,6 +255,8 @@ function createParticleMaterial(baseOpacity: number, waveStrength: number): THRE
       uFogRange: { value: PARTICLE_FOG_RANGE },
       uPassiveRange: { value: PASSIVE_SCAN_RANGE },
       uPulseWidth: { value: SONAR_PULSE_WIDTH },
+      uScanMemory: { value: defaultScanMemory },
+      uScanMemorySize: { value: 1 },
       uSensorForward: { value: new THREE.Vector3(0, 0, -1) },
       uSonarOrigin: { value: new THREE.Vector3() },
       uSonarRadius: { value: 0 },
@@ -523,6 +533,8 @@ export function createTerrainVisuals(terrain: TerrainField): THREE.Group {
 export type TerrainVisualUpdate = {
   playerYaw?: number;
   playerPosition: { x: number; y: number; z: number };
+  scanMemorySize?: number;
+  scanMemoryTexture?: THREE.DataTexture;
   sonarRadius: number;
   sonarReveal: number;
   time: number;
@@ -548,6 +560,12 @@ export function updateTerrainVisuals(group: THREE.Group, update: TerrainVisualUp
         update.playerPosition.z
       );
       points.material.uniforms.uSensorForward.value.set(sensorForwardX, 0, sensorForwardZ);
+      if (update.scanMemoryTexture) {
+        points.material.uniforms.uScanMemory.value = update.scanMemoryTexture;
+      }
+      if (update.scanMemorySize) {
+        points.material.uniforms.uScanMemorySize.value = update.scanMemorySize;
+      }
       points.material.uniforms.uSonarRadius.value = update.sonarRadius;
       points.material.uniforms.uSonarReveal.value = reveal;
       points.material.uniforms.uTime.value = update.time;
